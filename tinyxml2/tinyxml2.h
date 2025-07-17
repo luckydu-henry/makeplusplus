@@ -2264,7 +2264,7 @@ public:
     	If 'compact' is set to true, then output is created
     	with only required whitespace and newlines.
     */
-    XMLPrinter( FILE* file=0, bool compact = false, int depth = 0, EscapeAposCharsInAttributes aposInAttributes = ESCAPE_APOS_CHARS_IN_ATTRIBUTES );
+    XMLPrinter( FILE* file=0, bool compact = false, int depth = 0, EscapeAposCharsInAttributes aposInAttributes = DONT_ESCAPE_APOS_CHARS_IN_ATTRIBUTES );
     virtual ~XMLPrinter()	{}
 
     /** If streaming, write the BOM and declaration. */

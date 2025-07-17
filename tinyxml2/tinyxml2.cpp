@@ -2665,7 +2665,7 @@ void XMLPrinter::Putc( char ch )
 void XMLPrinter::PrintSpace( int depth )
 {
     for( int i=0; i<depth; ++i ) {
-        Write( "    " );
+        Write( "  " );
     }
 }
 

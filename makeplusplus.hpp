@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef _MSC_VER
+#pragma warning(disable : 4996)
+#endif
+
 #include <unordered_map>
 #include <vector>
 #include <string>
@@ -10,6 +14,8 @@ namespace tinyxml2 {
 }
 
 namespace makexx {
+
+    enum class target_type : std::uint32_t { exe = 1, lib, dll };
     
     class visual_studio_project {
         std::string                                                   solution_name_;
@@ -46,7 +52,7 @@ namespace makexx {
         visual_studio_project& target_icon          (std::string_view target_name, std::string_view         resource);
         visual_studio_project& target_dependencies  (std::string_view target_name, std::vector<std::string> dependencies);
         
-        visual_studio_project& target_type          (std::string_view target_name, std::uint32_t            type);
+        visual_studio_project& target_type          (std::string_view target_name, target_type type);
         visual_studio_project& target_cpp_version   (std::string_view target_name, std::uint32_t            version);
         visual_studio_project& target_c_version     (std::string_view target_name, std::uint32_t            version);
         

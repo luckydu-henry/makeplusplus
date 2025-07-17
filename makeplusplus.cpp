@@ -17,9 +17,17 @@ namespace makexx {
             std::default_random_engine eng{ rd() };
             std::uniform_int_distribution<std::size_t> distrib{};
     
-            return std::format("{{{:08X}-{:04X}-{:04X}-{:08X}{:04X}}}",
+            return std::format("{{{:08X}-{:04X}-{:04X}-{:04X}-{:08X}{:04X}}}",
                 distrib(eng) % 0xFFFFFFFF, distrib(eng) % 0xFFFF, distrib(eng) % 0xFFFF, distrib(eng) % 0xFFFF,
                 distrib(eng) % 0xFFFFFFFF, distrib(eng) % 0xFFFF);
+        }
+
+        static const char* visual_studio_get_protype_string(target_type type) {
+            switch (type) {
+            case target_type::exe: return "Application";
+            case target_type::lib: return "StaticLibrary";
+            case target_type::dll: return "DynamicLibrary";
+            }
         }
         
         static auto  visual_studio_extract_config(std::string_view config) {
@@ -31,8 +39,8 @@ namespace makexx {
             return std::make_tuple(mode, plat, tag, comb);
         }
 
-        static void  visual_studio_gen_resource(std::filesystem::path iconrc, std::filesystem::path reschh, std::string_view iconname) {
-            std::ofstream rc(iconrc), header(reschh);
+        static void  visual_studio_gen_resource(std::string_view target_name, std::string_view iconname) {
+            std::ofstream rc(std::string(target_name) + ".rc"), header(std::string(target_name) + ".resource.h");
 
             rc << std::format(R"(
 // Microsoft Visual C++ generated resource script.
@@ -92,7 +100,7 @@ IDI_ICON1               ICON                    "{1:s}"
 
 
 /////////////////////////////////////////////////////////////////////////////
-#endif    // not APSTUDIO_INVOKED)", reschh.generic_string(), iconname);
+#endif    // not APSTUDIO_INVOKED)", std::string(target_name) + ".resource.h", iconname);
 
             header << R"(
 //{{NO_DEPENDENCIES}}
@@ -235,7 +243,7 @@ IDI_ICON1               ICON                    "{1:s}"
             
             project->InsertNewChildElement("PropertyGroup")
             ->SetAttribute("Condition", comb.c_str())->SetAttribute("Label", "Configuration")
-            ->InsertNewChildElement("ConfigurationType") ->SetText("Application") ->ParentElement()
+            ->InsertNewChildElement("ConfigurationType") ->SetText("")            ->ParentElement()
             ->InsertNewChildElement("PlatformToolset")   ->SetText("v143")        ->ParentElement()
             ->InsertNewChildElement("CharacterSet")      ->SetText("Unicode")     ->ParentElement()
             ->InsertNewChildElement("UseDebugLibraries") ->SetText(mode_upper_norm == "DEBUG");
@@ -267,7 +275,7 @@ IDI_ICON1               ICON                    "{1:s}"
             ->InsertNewChildElement("Link");
         }
 
-        // include item group sequence 'project configuration''include' 'compile' 'icon' 'dependencies' 
+        // include item group sequence 'project configuration''include' 'compile' 'icon' ‘resource’ 'dependencies' 
         project->InsertNewComment("Include items")   ->ParentElement()->InsertNewChildElement("ItemGroup");
         project->InsertNewComment("Source items")    ->ParentElement()->InsertNewChildElement("ItemGroup");
         project->InsertNewChildElement("Import")     ->SetAttribute("Project", "$(VCTargetsPath)\\Microsoft.Cpp.targets");
@@ -292,12 +300,64 @@ IDI_ICON1               ICON                    "{1:s}"
     }
 
     visual_studio_project& visual_studio_project::target_icon(std::string_view target_name, std::string_view resource) {
-        std::filesystem::path iconrc = std::filesystem::path(target_name).replace_extension("rc");
-        std::filesystem::path rescrc = std::filesystem::path(target_name).replace_extension(".resource.h");
-        details::visual_studio_gen_resource(iconrc, rescrc, resource);
+        details::visual_studio_gen_resource(target_name, resource);
         target_attach_files_(target_name, {std::string(resource)}, "", Attach_Icon);
-        target_attach_files_(target_name, {iconrc.generic_string()}, "", Attach_Resource);
+        target_attach_files_(target_name, {std::string(target_name) + ".rc"}, "", Attach_Resource);
         return *this;
+    }
+
+    visual_studio_project& visual_studio_project::target_dependencies(std::string_view target_name,
+        std::vector<std::string> dependencies) {
+        tinyxml2::XMLDocument& docproj   = vcxproj_map_[target_name];
+        tinyxml2::XMLElement*  itemGroup = details::xml_find_nth_child("ItemGroup", docproj.RootElement(), Attach_Dependency);
+        for (std::string_view dependency : dependencies) {
+            itemGroup->InsertNewChildElement("ProjectReference")->SetAttribute("Include",  (std::string(dependency) + ".vcxproj").c_str())
+            ->InsertNewChildElement("Project")->SetText(vcxproj_guid_map_[dependency].c_str());
+        }
+        return *this;
+    }
+
+    visual_studio_project& visual_studio_project::target_type(std::string_view target_name, ::makexx::target_type type) {
+        tinyxml2::XMLDocument& docproj = vcxproj_map_[target_name];
+        tinyxml2::XMLElement*  propgroup = details::xml_find_nth_child("PropertyGroup", docproj.RootElement(), 1);
+        
+        for (auto& i : solution_configs_) {
+            propgroup->FirstChildElement("ConfigurationType")->SetText(details::visual_studio_get_protype_string(type));
+            propgroup = propgroup->NextSiblingElement("PropertyGroup");
+        }
+        return *this;
+    }
+
+    void visual_studio_project::save_project_to_file(std::string_view root) {
+        std::ofstream solution(std::string(root) + solution_name_ + ".sln");
+        solution << "Microsoft Visual Studio Solution File, Format Version 12.00\n";
+        std::string sln_guid = details::visual_studio_genguid();
+        for (const auto target : vcxproj_guid_map_ | std::views::keys) {
+            solution << std::format("Project(\"{0:s}\") = \"{1:s}\", \"{1:s}.vcxproj\", \"{2:s}\"\n", sln_guid, target, vcxproj_guid_map_[target]);
+            solution << "EndProject\n";
+        }
+
+        solution << "Global\n";
+        solution << "    GlobalSection(SolutionConfigurationPlatforms) = preSolution\n";
+        for (auto& config : solution_configs_) {
+            auto[mode, plat, tag, comb] = details::visual_studio_extract_config(config);
+            solution << std::format("        {0:s} = {0:s}\n", tag);
+        }
+        solution << "    EndGlobalSection\n";
+        solution << "    GlobalSection(ProjectConfigurationPlatforms) = postSolution\n";
+        for (auto& guid : vcxproj_guid_map_ | std::views::values) {
+            for (auto& config : solution_configs_) {
+                auto[mode, plat, tag, comb] = details::visual_studio_extract_config(config);
+                solution << std::format("        {0:s}.{1:s}.ActiveCfg = {1:s}\n", guid, tag);
+                solution << std::format("        {0:s}.{1:s}.Build.0 = {1:s}\n", guid, tag);
+            }
+        }
+        solution << "    EndGlobalSection\n";
+        solution << "	 GlobalSection(SolutionProperties) = preSolution\n";
+        solution << "        HideSolutionNode = FALSE\n";
+        solution << "    EndGlobalSection\n";
+        solution << "EndGlobal";
+        solution.close();
     }
 
     void visual_studio_project::save_targets_to_files(std::string_view root) {
