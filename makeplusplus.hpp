@@ -15,7 +15,11 @@ namespace tinyxml2 {
 
 namespace makexx {
 
-    enum class target_type : std::uint32_t { exe = 1, lib, dll };
+    enum class target_types             : std::uint32_t { exe = 1, lib, dll };
+    enum class target_cpp_standards     : std::uint32_t { latest = 1, cpp11, cpp14, cpp17, cpp20, cpp23, cpp26, };
+    enum class target_c_standards       : std::uint32_t { latest = 1, c11, c17, c23 };
+    enum class target_optimizations     : std::uint32_t { o0 = 1, o1, o2, o3 };
+    enum class target_msvc_subsystems   : std::uint32_t { console = 1, windows };
     
     class visual_studio_project {
         std::string                                                   solution_name_;
@@ -34,7 +38,8 @@ namespace makexx {
             Attach_Dependency     = 5
         };
         
-        void target_attach_files_(std::string_view target_name, const std::vector<std::string>& files, std::string_view filter, AttachmentType type);
+        void target_attach_files_             (std::string_view target_name, const std::vector<std::string>& files, std::string_view filter, AttachmentType type);
+        void target_set_item_definition_group_(std::string_view target_name, std::string_view condition, std::string_view scope, std::string_view elem, std::string_view value);
     public:
         visual_studio_project(std::string_view sln_name, const std::vector<std::string_view>& configs);
         
@@ -50,16 +55,21 @@ namespace makexx {
         visual_studio_project& target_headers       (std::string_view target_name, const std::vector<std::string>& headers, std::string_view filter = "");
         visual_studio_project& target_sources       (std::string_view target_name, const std::vector<std::string>& sources, std::string_view filter = "");
         visual_studio_project& target_icon          (std::string_view target_name, std::string_view         resource);
-        visual_studio_project& target_dependencies  (std::string_view target_name, std::vector<std::string> dependencies);
+        visual_studio_project& target_dependencies  (std::string_view target_name, const std::vector<std::string>& dependencies);
         
-        visual_studio_project& target_type          (std::string_view target_name, target_type type);
-        visual_studio_project& target_cpp_version   (std::string_view target_name, std::uint32_t            version);
-        visual_studio_project& target_c_version     (std::string_view target_name, std::uint32_t            version);
+        visual_studio_project& target_type                (std::string_view target_name, target_types          type);
+        visual_studio_project& target_cpp_standard        (std::string_view target_name, target_cpp_standards  version);
+        visual_studio_project& target_c_standard          (std::string_view target_name, target_c_standards    version);
         
-        visual_studio_project& target_config_optimization (std::string_view target_name, std::string_view config, std::uint32_t     level);
-        visual_studio_project& target_config_defines      (std::string_view target_name, std::string_view config, std::string_view  defines); // Use ; as seperator
-        visual_studio_project& target_config_intrinsics   (std::string_view target_name, std::string_view config, std::uint32_t     intrin);
-        visual_studio_project& target_config_subsystem    (std::string_view target_name, std::string_view config, std::uint32_t     type);
+        visual_studio_project& target_msvc_subsystem      (std::string_view target_name, target_msvc_subsystems sys);
+        
+        visual_studio_project& target_config_optimization (std::string_view target_name, std::string_view config, target_optimizations   op);
+        visual_studio_project& target_config_defines      (std::string_view target_name, std::string_view config, const std::vector<std::string>& defines); // Use ; as separator
+
+        visual_studio_project& target_link_directories    (std::string_view target_name, const std::vector<std::string>& dirs);
+        visual_studio_project& target_include_directories (std::string_view target_name, const std::vector<std::string>& dirs);
+        // Use ; as separator, no need .lib/.a suffix or lib prefix.
+        visual_studio_project& target_external_links      (std::string_view target_name, std::string_view config, const std::vector<std::string>& links);
 
         void                   save_project_to_file(std::string_view root = "");
         void                   save_targets_to_files(std::string_view root = "");
