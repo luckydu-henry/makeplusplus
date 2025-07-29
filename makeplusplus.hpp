@@ -27,7 +27,7 @@ namespace makexx {
 
     void         put_default_content(cpod::archive& arch);
     std::string  put_header_archive_to_buffer(const std::unordered_map<std::string_view, std::string>& defmap = {});
-    void         get_header_archive_from_buffer(std::unordered_map<std::string_view, std::string>& defmap);
+    void         get_header_archive_from_buffer(cpod::archive& arch, std::unordered_map<std::string_view, std::string>& defmap);
     
     class visual_studio_project {
         std::string                                                   solution_name_;

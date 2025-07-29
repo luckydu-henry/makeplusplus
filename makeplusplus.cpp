@@ -53,10 +53,8 @@ namespace makexx {
         arch << cpod::def("MXX_OPTIMIZATION_2", "3");
         arch << cpod::def("MXX_OPTIMIZATION_3", "4") << '\n';
 
-#ifdef _WIN32
         arch << cpod::def("MXX_MSVC_SUBSYSTEM_CONSOLE", "1");
         arch << cpod::def("MXX_MSVC_SUBSYSTEM_WINDOW",  "2") << '\n';
-#endif
 
 #define TYPE_AND_VAR_STRING(type, var) #type" "#var
         // Project define macros.
@@ -81,11 +79,10 @@ namespace makexx {
         arch << cpod::def("TARGET_STD_C",           TYPE_AND_VAR_STRING(uint32_t , mxx_target_std_c));
         arch << cpod::def("TARGET_OPTIMIZATION",    TYPE_AND_VAR_STRING(uint32_t , mxx_target_optimization)) << '\n';
         
-#ifdef _WIN32
         arch << cpod::def("TARGET_MSVC_ICON",       TYPE_AND_VAR_STRING(std::string , mxx_target_msvc_icon));
         arch << cpod::def("TARGET_MSVC_SUBSYSTEM",  TYPE_AND_VAR_STRING(uint32_t    , mxx_target_msvc_subsystem)) << '\n';
-#endif
-        
+
+#undef TYPE_AND_VAR_STRING
     }
 
     std::string put_header_archive_to_buffer(const std::unordered_map<std::string_view, std::string>& defmap) {
@@ -112,7 +109,7 @@ namespace makexx {
         arch << cpod::def("MXX_SYSTEM", "MXX_SYSTEM_LINUX");
 #else
         arch << cpod::def("MXX_SYSTEM_REAL_UNIX", "\"unix\"");
-        arch << cpod::def("MXX_SYSTEM", "MXX_SYSTEM_REAL_UNIX");
+        arch << cpod::def("MXX_SYSTEM", "MXX_SYSTEM_UNIX");
 #endif
         // Write all custom macros.
         for (auto& [key, val] : defmap) {
@@ -120,8 +117,19 @@ namespace makexx {
         }
         return arch.content();
     }
-    
-    
+
+    void get_header_archive_from_buffer(cpod::archive& arch, std::unordered_map<std::string_view, std::string>& defmap) {
+        cpod::cpp_subset_compiler compiler(std::move(arch.content()));
+
+        compiler.remove_comments(); compiler.src = compiler.out;             
+        compiler.get_macro_define_map(defmap);
+        arch.content() = std::move(compiler.src);
+
+        for (auto& i : defmap) {
+            cpod::cpp_subset_compiler::expand_macro_value(defmap, i.first);
+        }
+    }
+
     namespace msvc_details {
 
         static std::string           normalize_to_uppercase_mode(std::string_view mode) {
@@ -220,7 +228,7 @@ namespace makexx {
             rc << std::format(R"(
 // Microsoft Visual C++ generated resource script.
 //
-#include "{0:s}"
+#include "{0:s}.resource.h"
 
 #define APSTUDIO_READONLY_SYMBOLS
 /////////////////////////////////////////////////////////////////////////////
@@ -240,7 +248,7 @@ namespace makexx {
 
 1 TEXTINCLUDE 
 BEGIN
-    "{0:s}\0"
+    "{0:s}.resource.h\0"
 END
 
 2 TEXTINCLUDE 
@@ -275,7 +283,7 @@ IDI_ICON1               ICON                    "{1:s}"
 
 
 /////////////////////////////////////////////////////////////////////////////
-#endif    // not APSTUDIO_INVOKED)", std::string(target_name) + ".resource.h", iconname);
+#endif    // not APSTUDIO_INVOKED)", target_name, iconname);
 
             header << R"(
 //{{NO_DEPENDENCIES}}

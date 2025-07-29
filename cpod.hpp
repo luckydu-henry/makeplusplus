@@ -717,7 +717,7 @@ template <typename K, typename V, typename ... OtherStuff> \
                             msg = "Invalid character after /";
                             return;
                         }
-                    } break;
+                    } else { out.push_back(src[i]); } break;
                 default: out.push_back(src[i]); break;
                 }
             }
@@ -784,7 +784,8 @@ template <typename K, typename V, typename ... OtherStuff> \
                     if (macro_map.contains(found_key)) {
                         const std::size_t delta = it - value.begin();
                         value.replace(it, ed, macro_map[found_key]);
-                        it = value.begin() + delta - 1;
+                        it = value.begin() + delta;
+                        if (it != value.begin()) { --it; }
                     } else {
                         it += ed - it - 1;
                     }
