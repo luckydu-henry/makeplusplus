@@ -132,6 +132,8 @@ namespace makexx {
 
     namespace msvc_details {
 
+        static std::string           get_filter_path();
+
         static std::string           normalize_to_uppercase_mode(std::string_view mode) {
             std::string mode_upper_norm;
             std::ranges::transform(mode, std::back_inserter(mode_upper_norm), [](auto i) { return std::toupper(i); });
@@ -312,30 +314,43 @@ IDI_ICON1               ICON                    "{1:s}"
     /////////////////////////////////////////////////////////////
     
     void visual_studio_project::target_attach_files_(std::string_view target_name, const std::vector<std::string>& files,
-                                                     std::string_view filter, AttachmentType type) {
+                                                     const std::string& filter_root, AttachmentType type) {
         static const char* itemStrings[] = { "", "ClInclude", "ClCompile", "Image", "ResourceCompile" };
         
         // Add filter to list.
         tinyxml2::XMLDocument& docfilt = vcxproj_filters_map_[target_name];
         tinyxml2::XMLElement*  itemGroupFileFilter = msvc_details::xml_find_child_with_index("ItemGroup", docfilt.RootElement(), type);
+
+        std::string absrt =  std::filesystem::absolute(std::filesystem::path(filter_root).lexically_normal()).generic_string();
         
-        if (!filter.empty() && !vcxproj_filter_name_map_.contains(filter)) {
-            vcxproj_filter_name_map_[filter] = filter;
-            msvc_details::xml_find_child_with_index("ItemGroup", docfilt.RootElement())
-            ->InsertNewChildElement("Filter")->SetAttribute("Include", filter.data())
-            ->InsertNewChildElement("UniqueIdentifier")->SetText(msvc_details::generate_guid().c_str());
+        for (auto& path : files) {
+            auto abspath = std::filesystem::absolute(std::filesystem::path(path).lexically_normal()).remove_filename().generic_string();
+            abspath.erase(0, absrt.size());
+            if (abspath.back() == '/') { abspath.pop_back(); }
+            
+            if (!abspath.empty() && !vcxproj_filter_name_map_.contains(abspath)) {
+                vcxproj_filter_name_map_[abspath] = abspath;
+                msvc_details::xml_find_child_with_index("ItemGroup", docfilt.RootElement())
+                ->InsertNewChildElement("Filter")->SetAttribute("Include", abspath.data())
+                ->InsertNewChildElement("UniqueIdentifier")->SetText(msvc_details::generate_guid().c_str());
+            }
         }
         
         tinyxml2::XMLDocument& docproj = vcxproj_map_[target_name];
         tinyxml2::XMLElement*  itemGroupFiles = msvc_details::xml_find_child_with_index("ItemGroup", docproj.RootElement(), type);
 
-        for (auto& i : files) {
-            itemGroupFiles->InsertNewChildElement(itemStrings[type])->SetAttribute("Include", i.c_str());
+        for (auto& path : files) {
+            itemGroupFiles->InsertNewChildElement(itemStrings[type])->SetAttribute("Include", path.c_str());
             
             tinyxml2::XMLElement* fclItem = itemGroupFileFilter->InsertNewChildElement(itemStrings[type]);
-            fclItem->SetAttribute("Include", i.c_str());
-            if (!filter.empty()) {
-                fclItem->InsertNewChildElement("Filter")->SetText(filter.data());
+            fclItem->SetAttribute("Include", path.c_str());
+
+            auto abspath = std::filesystem::absolute(std::filesystem::path(path).lexically_normal()).remove_filename().generic_string();
+            abspath.erase(0, absrt.size());
+            if (abspath.back() == '/') { abspath.pop_back(); }
+            
+            if (!abspath.empty()) {
+                fclItem->InsertNewChildElement("Filter")->SetText(abspath.data());
             }
         }
     }
@@ -357,7 +372,7 @@ IDI_ICON1               ICON                    "{1:s}"
     }
 
 
-    visual_studio_project::visual_studio_project(std::string_view sln_name, const std::vector<std::string_view>& configs)
+    visual_studio_project::visual_studio_project(std::string_view sln_name, const std::vector<std::string>& configs)
     : solution_name_(sln_name), solution_configs_(configs) {
         
     }
@@ -487,21 +502,21 @@ IDI_ICON1               ICON                    "{1:s}"
     }
 
     visual_studio_project& visual_studio_project::target_headers(std::string_view target_name,
-        const std::vector<std::string>& headers, std::string_view filter) {
+        const std::vector<std::string>& headers, const std::string& filter) {
         target_attach_files_(target_name, headers, filter, Attach_Headers);
         return *this;        
     }
 
     visual_studio_project& visual_studio_project::target_sources(std::string_view target_name,
-        const std::vector<std::string>& sources, std::string_view filter) {
+        const std::vector<std::string>& sources, const std::string& filter) {
         target_attach_files_(target_name, sources, filter, Attach_Sources);
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_icon(std::string_view target_name, std::string_view resource) {
+    visual_studio_project& visual_studio_project::target_msvc_icon(std::string_view target_name, std::string_view resource) {
         msvc_details::generate_resource(target_name, resource);
-        target_attach_files_(target_name, {std::string(resource)}, "", Attach_Icon);
-        target_attach_files_(target_name, {std::string(target_name) + ".rc"}, "", Attach_Resource);
+        target_attach_files_(target_name, {std::filesystem::absolute(resource).generic_string()}, "./", Attach_Icon);
+        target_attach_files_(target_name, {std::filesystem::absolute(std::string(target_name) + ".rc").generic_string()}, "./", Attach_Resource);
         return *this;
     }
 
@@ -526,7 +541,7 @@ IDI_ICON1               ICON                    "{1:s}"
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_cpp_standard(std::string_view target_name,
+    visual_studio_project& visual_studio_project::target_std_cpp(std::string_view target_name,
         target_cpp_standards  version) {
         for (auto& config : solution_configs_) {
             target_set_item_definition_group_(target_name, config,
@@ -535,7 +550,7 @@ IDI_ICON1               ICON                    "{1:s}"
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_c_standard(std::string_view target_name,
+    visual_studio_project& visual_studio_project::target_std_c(std::string_view target_name,
         target_c_standards version) {
         for (auto& config : solution_configs_) {
             target_set_item_definition_group_(target_name, config,
@@ -553,15 +568,13 @@ IDI_ICON1               ICON                    "{1:s}"
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_config_optimization(std::string_view target_name,
-        std::string_view config, target_optimizations op) {
+    visual_studio_project& visual_studio_project::target_optimization(std::string_view target_name, target_optimizations op, std::string_view config) {
         target_set_item_definition_group_(target_name, config,
     "ClCompile", "Optimization", msvc_details::get_optimization_string(op));
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_config_defines(std::string_view target_name,
-        std::string_view config, const std::vector<std::string>& defines) {
+    visual_studio_project& visual_studio_project::target_defines(std::string_view target_name, const std::vector<std::string>& defines, std::string_view config) {
         auto nmode = msvc_details::normalize_to_uppercase_mode(std::get<0>(msvc_details::extract_config(config)));
         std::string_view mac = nmode == "DEBUG" ? "_DEBUG" : "NDEBUG";
         target_set_item_definition_group_(target_name, config,
@@ -570,7 +583,7 @@ IDI_ICON1               ICON                    "{1:s}"
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_link_directories(std::string_view target_name,
+    visual_studio_project& visual_studio_project::target_external_link_directories(std::string_view target_name,
         const std::vector<std::string>& dirs) {
         for (auto& config : solution_configs_) {
             target_set_item_definition_group_(target_name, config,
@@ -582,7 +595,7 @@ IDI_ICON1               ICON                    "{1:s}"
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_include_directories(std::string_view target_name,
+    visual_studio_project& visual_studio_project::target_external_include_directories(std::string_view target_name,
         const std::vector<std::string>& dirs) {
         for (auto& config : solution_configs_) {
             target_set_item_definition_group_(target_name, config,
@@ -594,8 +607,7 @@ IDI_ICON1               ICON                    "{1:s}"
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_config_external_links(std::string_view target_name,
-                                                                        std::string_view config, const std::vector<std::string>& links) {
+    visual_studio_project& visual_studio_project::target_external_links(std::string_view target_name, const std::vector<std::string>& links, std::string_view config) {
         target_set_item_definition_group_(target_name, config,
             "Link", "AdditionalDependencies",
             std::format("{:s};%(AdditionalDependencies)", msvc_details::convert_list_to_string(links, ".lib",
@@ -603,14 +615,12 @@ IDI_ICON1               ICON                    "{1:s}"
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_config_out_directory(std::string_view target_name,
-        std::string_view config, std::string_view dir) {
+    visual_studio_project& visual_studio_project::target_binary_directory(std::string_view target_name, std::string_view dir, std::string_view config) {
         target_append_property_group_(target_name, config, "OutDir", dir);
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_config_int_directory(std::string_view target_name,
-        std::string_view config, std::string_view dir) {
+    visual_studio_project& visual_studio_project::target_intermediate_directory(std::string_view target_name, std::string_view dir, std::string_view config) {
         target_append_property_group_(target_name, config, "IntDir", dir);
         return *this;
     }
@@ -618,7 +628,7 @@ IDI_ICON1               ICON                    "{1:s}"
     void visual_studio_project::save_project_to_file(std::string_view root) {
         // Solution file generator generates only the necessary part
         // Won't contain visual studio version.
-        std::ofstream solution(std::string(root) + solution_name_ + ".sln");
+        std::ofstream solution(std::filesystem::path(root) / (solution_name_ + ".sln"));
         solution << "Microsoft Visual Studio Solution File, Format Version 12.00\n";
         std::string sln_guid = msvc_details::generate_guid();
         for (const auto target : vcxproj_guid_map_ | std::views::keys) {
@@ -651,5 +661,254 @@ IDI_ICON1               ICON                    "{1:s}"
     void visual_studio_project::save_targets_to_files(std::string_view root) {
         msvc_details::xml_save_map_to_file(vcxproj_map_, ".vcxproj", root);
         msvc_details::xml_save_map_to_file(vcxproj_filters_map_, ".vcxproj.filters", root);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    ///                                Real Application                              ///
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    std::string make_application::fix_path_(std::string_view path) {
+        std::string root = definition_map_["MXX_PROJECT_ROOT"];
+        std::erase(root, '\"');
+        return (std::filesystem::path(root) / path).lexically_normal().generic_string();
+    }
+
+    std::vector<std::string> make_application::fix_paths_(std::vector<std::string>& paths) {
+        for (auto& path : paths) {
+            path = fix_path_(path);
+        }
+        return paths;
+    }
+
+    void make_application::generate_header_() {
+        std::ofstream header("makexx.generated.hpp");
+        header << put_header_archive_to_buffer({
+            {"MXX_PROJECT_ROOT", std::format("\"{:s}/\"", std::filesystem::current_path().parent_path().generic_string())}
+        });
+        header.close();
+        std::cout << "Header generated!\n";
+    }
+
+    void make_application::generate_project_() {
+        if (argc_ < 3) {
+            std::cout << "Error, must have project name argument!\n";
+            return;
+        }
+        std::string_view project_name = argv_[2];
+        if (!std::filesystem::exists("makexx.generated.hpp")) {
+            generate_header_();
+        }
+        std::ofstream project(std::format("../{:s}.make.hpp", project_name));
+        project << "// Makeplusplus project!\n";
+        project << std::format("#include \"{:s}/makexx.generated.hpp\"\n\n", std::filesystem::current_path().filename().generic_string());
+        project << std::format("PROJECT_NAME = \"{:s}\";\n", project_name);
+        project << "PROJECT_TARGETS = {\"\"};\n";
+        project << "PROJECT_CONFIGURATIONS = {\"\"};\n\n";
+        project << "#pragma target_definitions\n";
+        project.close();
+        std::cout << std::format("Project description \"{:s}\" has been written to \"{:s}\"\n", project_name, std::filesystem::current_path().generic_string());
+    }
+
+    void make_application::read_current_definition_map_() {
+        std::ifstream     header("./makexx.generated.hpp");
+        std::stringstream strbuf;
+        strbuf << header.rdbuf();
+        static cpod::archive static_archive(std::move(strbuf.str()));
+        get_header_archive_from_buffer(static_archive, definition_map_);
+    }
+
+    void make_application::read_source_and_split_targets_() {
+        read_current_definition_map_();
+        
+        if (argc_ < 3) {
+            std::cout << "Error, must have project description path argument!\n";
+            return;
+        }
+        std::string_view project_desc_path = argv_[2];
+        std::ifstream ifs(project_desc_path.data());
+
+        if (!ifs.good()) {
+            std::cout << "Error, invalid description path!\n";
+            return;
+        }
+
+        std::string   source_cache;
+        bool          before_first_namespace = true;
+        std::size_t   scope_count = 0;
+        std::string   current_scope_name;
+
+        // Split all targets.
+        for (std::string line_cache; std::getline(ifs, line_cache);) {
+            if (before_first_namespace) {
+                if (line_cache == "#pragma target_definitions") {
+                    before_first_namespace = false;
+                    mxx_project_source_fields_["project_scope"] = source_cache;
+                    source_cache.clear();
+                }
+                else {
+                    if (line_cache.find("#include") == std::string::npos) {
+                        source_cache += line_cache;
+                        source_cache.push_back('\n');
+                    }
+                }
+            }
+            else {
+                if (auto b = line_cache.find("namespace"); b != std::string::npos) {
+                    // The first one.
+                    std::size_t end = line_cache.find(' ', b + 10);
+                    std::string scope_name_cache = line_cache.substr(b + 10, end - b - 10);
+                    if (scope_count == 0) {
+                        current_scope_name = scope_name_cache;
+                    } else {
+                        source_cache += std::format("#pragma target_config {:s}\n", scope_name_cache);
+                    }
+                    ++scope_count;
+                }
+                else {
+                    if (line_cache.find('{') != std::string::npos) {
+                        ++scope_count;
+                    }
+                    if (line_cache.find('}') != std::string::npos) {
+                        if (scope_count == 1) {
+                            mxx_project_source_fields_[current_scope_name] = source_cache;
+                            source_cache.clear();
+                        }
+                        --scope_count;
+                    }
+                    std::erase_if(line_cache, [](auto it){ return std::isspace(it); });
+                    if (line_cache != "}") {
+                        source_cache += line_cache;
+                        source_cache.push_back('\n');
+                    }
+                }
+            }
+        }
+        
+        // Read project scope data.
+        cpod::archive project_scope(mxx_project_source_fields_["project_scope"]);
+        project_scope.compile_content_default(definition_map_);
+
+        project_scope
+        >> cpod::var("mxx_project_name", mxx_project_name_)
+        >> cpod::var("mxx_project_targets", mxx_project_targets_)
+        >> cpod::var("mxx_project_configurations", mxx_project_configurations_);
+    }
+
+    // Two handle functions.
+    
+    template <class Ty>
+    static constexpr Ty no_operation(const Ty& v) {
+        return v;
+    }
+
+    template <class E>
+    static constexpr E  enum_convert(auto e) {
+        return static_cast<E>(e);
+    }
+    
+    void make_application::read_target_and_generate_vs_project_(const std::string& target, const std::string& source, visual_studio_project& vssln) {
+        std::stringstream strbuf;
+        strbuf << source << '\n' << "#pragma target_config end";
+
+#define FIND_AND_SET_PROPERTY(fn, hd, ...) do { \
+if (current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn) != current_archive.content_end()) {\
+current_archive >> cpod::var("mxx_"#fn, mxx_##fn);\
+auto hd_var = hd(mxx_##fn);                          \
+vssln.fn(target, hd_var,__VA_ARGS__);           \
+}} while (false)
+        
+        std::string      splited_source;
+        std::size_t      config_count = 0;
+        std::string      current_config;
+        
+        for (std::string line_cache; std::getline(strbuf, line_cache);) {
+            if (std::memcmp(line_cache.c_str(), "#pragma target_config ", 22) == 0) {
+                cpod::archive    current_archive(splited_source);
+                current_archive.compile_content_default(definition_map_);
+                
+                if (config_count == 0) {
+                    // Variables needed to be loaded.
+                    std::vector<std::string> mxx_target_headers;
+                    std::vector<std::string> mxx_target_sources;
+                    std::vector<std::string> mxx_target_dependencies;
+                    std::vector<std::string> mxx_target_external_link_directories;
+                    std::vector<std::string> mxx_target_external_include_directories;
+
+                    std::string              mxx_target_msvc_icon;
+                    std::uint32_t            mxx_target_type;
+                    std::uint32_t            mxx_target_std_cpp;
+                    std::uint32_t            mxx_target_std_c;
+                    std::uint32_t            mxx_target_msvc_subsystem;
+
+                    auto filter_root = fix_path_("");
+                    
+                    FIND_AND_SET_PROPERTY(target_sources,                        fix_paths_, filter_root);
+                    FIND_AND_SET_PROPERTY(target_headers,                        fix_paths_, filter_root);
+                    FIND_AND_SET_PROPERTY(target_msvc_icon,                      fix_path_);
+                    FIND_AND_SET_PROPERTY(target_dependencies,                   no_operation);
+                    FIND_AND_SET_PROPERTY(target_type,                           enum_convert<target_types>);
+                    FIND_AND_SET_PROPERTY(target_std_cpp,                        enum_convert<target_cpp_standards>);
+                    FIND_AND_SET_PROPERTY(target_std_c,                          enum_convert<target_c_standards>);
+                    FIND_AND_SET_PROPERTY(target_msvc_subsystem,                 enum_convert<target_msvc_subsystems>);
+                    FIND_AND_SET_PROPERTY(target_external_link_directories,      fix_paths_);
+                    FIND_AND_SET_PROPERTY(target_external_include_directories,   fix_paths_);
+                }
+                else {
+                    std::vector<std::string> mxx_target_defines;
+                    std::vector<std::string> mxx_target_external_links;
+                    std::string              mxx_target_binary_directory;
+                    std::string              mxx_target_intermediate_directory;
+                    std::uint32_t            mxx_target_optimization;
+                    
+                    FIND_AND_SET_PROPERTY(target_optimization,            enum_convert<target_optimizations>, current_config);
+                    FIND_AND_SET_PROPERTY(target_defines,                 no_operation,                       current_config);
+                    FIND_AND_SET_PROPERTY(target_external_links,          no_operation,                       current_config);
+                    FIND_AND_SET_PROPERTY(target_intermediate_directory,  fix_path_,                          current_config);
+                    FIND_AND_SET_PROPERTY(target_binary_directory,        fix_path_,                          current_config);
+                }
+                splited_source.clear();
+                current_config = line_cache.substr(22);
+                ++config_count;
+            } else {
+                splited_source += line_cache;
+                splited_source.push_back('\n');
+            }
+        }
+        
+    }
+
+    void make_application::generate_actual_visual_studio_project_() {
+        read_source_and_split_targets_();
+        // TODO IMPLEMENT VISUAL STUDIO GENERATOR !!!
+        visual_studio_project vssln(mxx_project_name_, mxx_project_configurations_);
+
+        for (auto& target : mxx_project_targets_) {
+            vssln.new_target(target);
+            auto& source = mxx_project_source_fields_[target];
+            read_target_and_generate_vs_project_(target, source, vssln);
+        }
+
+        std::filesystem::create_directory(mxx_project_name_);
+        vssln.save_targets_to_files(mxx_project_name_);
+        vssln.save_project_to_file(mxx_project_name_);
+    }
+
+    make_application::make_application(int argc, char** argv) : argc_(argc), argv_(argv) {
+    }
+
+    int make_application::operator()() {
+        using namespace std::string_view_literals;
+        if (argc_ == 1) {
+            std::cout << s_hello_message << std::endl;
+            return 0;
+        }
+        // Generate project
+        if      ("-gh"sv    == argv_[1])    { generate_header_(); }
+        else if ("-gp"sv    == argv_[1])    { generate_project_(); }
+        else if ("-gv"sv    == argv_[1])    { generate_actual_visual_studio_project_(); }
+        else if ("-h"sv     == argv_[1]  ||
+                 "--help"sv == argv_[1])    {
+            std::cout << s_help_message << std::endl;
+        }
     }
 }

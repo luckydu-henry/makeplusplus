@@ -31,7 +31,7 @@ namespace makexx {
     
     class visual_studio_project {
         std::string                                                   solution_name_;
-        std::vector<std::string_view>                                 solution_configs_;
+        std::vector<std::string>                                      solution_configs_;
         // For visual studio project locate.
         std::unordered_map<std::string_view, std::string>             vcxproj_guid_map_;
         std::unordered_map<std::string_view, tinyxml2::XMLDocument>   vcxproj_map_;
@@ -46,11 +46,11 @@ namespace makexx {
             Attach_Dependency     = 5
         };
         
-        void target_attach_files_             (std::string_view target_name, const std::vector<std::string>& files, std::string_view filter, AttachmentType type);
+        void target_attach_files_             (std::string_view target_name, const std::vector<std::string>& files, const std::string& filter_root, AttachmentType type);
         void target_set_item_definition_group_(std::string_view target_name, std::string_view condition, std::string_view scope, std::string_view elem, std::string_view value);
         void target_append_property_group_    (std::string_view target_name, std::string_view condition, std::string_view scope, std::string_view value);
     public:
-        visual_studio_project(std::string_view sln_name, const std::vector<std::string_view>& configs);
+        visual_studio_project(std::string_view sln_name, const std::vector<std::string>& configs);
         
         visual_studio_project(const visual_studio_project&)            noexcept = default;
         visual_studio_project(visual_studio_project&&)                 noexcept = default;
@@ -61,34 +61,87 @@ namespace makexx {
         //                   Common target properties.                     //
         /////////////////////////////////////////////////////////////////////
         visual_studio_project& new_target           (std::string_view target_name);
-        visual_studio_project& target_headers       (std::string_view target_name, const std::vector<std::string>& headers, std::string_view filter = "");
-        visual_studio_project& target_sources       (std::string_view target_name, const std::vector<std::string>& sources, std::string_view filter = "");
-        visual_studio_project& target_icon          (std::string_view target_name, std::string_view         resource);
+        visual_studio_project& target_headers       (std::string_view target_name, const std::vector<std::string>& headers, const std::string& filter = "");
+        visual_studio_project& target_sources       (std::string_view target_name, const std::vector<std::string>& sources, const std::string& filter = "");
+        visual_studio_project& target_msvc_icon     (std::string_view target_name, std::string_view         resource);
         visual_studio_project& target_dependencies  (std::string_view target_name, const std::vector<std::string>& dependencies);
         
         visual_studio_project& target_type                (std::string_view target_name, target_types          type);
-        visual_studio_project& target_cpp_standard        (std::string_view target_name, target_cpp_standards  version);
-        visual_studio_project& target_c_standard          (std::string_view target_name, target_c_standards    version);
+        visual_studio_project& target_std_cpp        (std::string_view target_name, target_cpp_standards  version);
+        visual_studio_project& target_std_c          (std::string_view target_name, target_c_standards    version);
         
         visual_studio_project& target_msvc_subsystem      (std::string_view target_name, target_msvc_subsystems sys);
         
-        visual_studio_project& target_config_optimization        (std::string_view target_name, std::string_view config, target_optimizations   op);
-        visual_studio_project& target_config_defines             (std::string_view target_name, std::string_view config, const std::vector<std::string>& defines); // Use ; as separator
-        visual_studio_project& target_config_external_links      (std::string_view target_name, std::string_view config, const std::vector<std::string>& links);
-        visual_studio_project& target_config_out_directory       (std::string_view target_name, std::string_view config, std::string_view dir);
-        visual_studio_project& target_config_int_directory       (std::string_view target_name, std::string_view config, std::string_view dir);
+        visual_studio_project& target_optimization           (std::string_view target_name, target_optimizations   op, std::string_view config);
+        visual_studio_project& target_defines                (std::string_view target_name, const std::vector<std::string>& defines, std::string_view config); // Use ; as separator
+        visual_studio_project& target_external_links         (std::string_view target_name, const std::vector<std::string>& links, std::string_view config);
+        visual_studio_project& target_binary_directory       (std::string_view target_name, std::string_view dir, std::string_view config);
+        visual_studio_project& target_intermediate_directory (std::string_view target_name, std::string_view dir, std::string_view config);
         
-        visual_studio_project& target_link_directories    (std::string_view target_name, const std::vector<std::string>& dirs);
-        visual_studio_project& target_include_directories (std::string_view target_name, const std::vector<std::string>& dirs);
+        visual_studio_project& target_external_link_directories    (std::string_view target_name, const std::vector<std::string>& dirs);
+        visual_studio_project& target_external_include_directories (std::string_view target_name, const std::vector<std::string>& dirs);
 
         void                   save_project_to_file(std::string_view root = "");
         void                   save_targets_to_files(std::string_view root = "");
 
-        std::vector<std::string_view>& configs() { return solution_configs_; };
+        std::vector<std::string>& configs() { return solution_configs_; }
     };
         
     class makefile_project {
         
+    };
+
+    class make_application {
+
+        static constexpr std::string_view s_hello_message =
+R"(---------------------------------------------------------------------------------------------------------------------
+Hello, welcome to use makeplusplus!
+This software allows you to create visual studio solution project and makefile project with 'C++' code!
+The software itself is also written in C++ and that results in its high performance.
+This software is especially for those developers who want to have a lightweight portable building system
+with a good speed, if you are building an application like a video game or an editor, you are going to love this,
+however if your goal is to develop a third-party library and wants to include dependencies or some high-end features
+easily, you might still want to use CMake.
+You can use -h or --help command for more usages.
+To create a makeplusplus project, just use -gp and you are ready to go.
+---------------------------------------------------------------------------------------------------------------------)";
+
+        static constexpr std::string_view s_help_message =
+R"(---------------------------------------------------------------------------------------------------------------------
+-h/--help                : This command.
+-gh                      : Generate only platform dependent header with makeplusplus project structure.
+-gp <project-name>       : Generate complete project with makeplusplus project structure.
+-gv <description-path>   : Generate visual studio solution and projects under 'projects' folder.
+---------------------------------------------------------------------------------------------------------------------)";
+        
+        int         argc_;
+        char**      argv_;
+
+        std::unordered_map<std::string_view, std::string> definition_map_;
+
+        // Basic informations.
+        std::string                  mxx_project_name_;
+        std::vector<std::string>     mxx_project_targets_;
+        std::vector<std::string>     mxx_project_configurations_;
+
+        std::unordered_map<std::string, std::string> mxx_project_source_fields_;
+
+        std::string                   fix_path_(std::string_view path);
+        std::vector<std::string>      fix_paths_(std::vector<std::string>& paths);
+
+
+        void generate_header_();
+        void generate_project_();
+        void read_current_definition_map_();
+        void read_source_and_split_targets_();
+        void read_target_and_generate_vs_project_(const std::string& target, const std::string& source, visual_studio_project& vssln);
+        void generate_actual_visual_studio_project_();
+        
+    public:
+        make_application(int argc, char** argv);
+        ~make_application() = default;
+
+        int operator()();
     };
     
 }

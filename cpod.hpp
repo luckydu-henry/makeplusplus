@@ -119,11 +119,13 @@ namespace cpod {
         // Reader mode
         archive(std::string_view c) : content_(c), base_indent_count_(0) {}
         
-        constexpr std::string&        content()       { return content_; }
-        constexpr std::string_view    content() const { return content_; }
+        constexpr std::string&                   content()       { return content_; }
+        constexpr std::string_view               content() const { return content_; }
+
+        constexpr std::string::const_iterator    content_end() const { return content_.cend(); }
 
         // Compile writes compiled code stream to content_.
-        inline    std::string         compile_content_default(std::initializer_list<std::pair<std::string_view, std::string>> init_macro_map = {}) noexcept;
+        inline    std::string         compile_content_default(const std::unordered_map<std::string_view, std::string>& init_macro_map = {}) noexcept;
 
         template <class Ty>
         constexpr std::string::const_iterator find_variable_begin(std::string_view var_name);
@@ -1253,19 +1255,20 @@ template <typename K, typename V, typename ... OtherStuff> \
         return content_.cend();
     }
     
-    inline std::string archive::compile_content_default(std::initializer_list<std::pair<std::string_view, std::string>> init_macro_map) noexcept {
+    inline std::string archive::compile_content_default(const std::unordered_map<std::string_view, std::string>& init_macro_map) noexcept {
         cpp_subset_compiler compiler(std::move(content_));
         std::vector<std::string_view>                     token_list;
-        std::unordered_map<std::string_view, std::string> macro_map(init_macro_map.begin(), init_macro_map.end());
+        std::unordered_map<std::string_view, std::string> macro_map = init_macro_map;
 
         compiler.remove_comments(); compiler.src = compiler.out;             
         compiler.get_macro_define_map(macro_map);
         std::string out_source = std::move(compiler.src);
 
+        
         for (auto& i : macro_map) {
             cpp_subset_compiler::expand_macro_value(macro_map, i.first);
         }
-
+        
         compiler.src = compiler.out; compiler.expand_conditional_macros(macro_map);
         compiler.src = compiler.out; compiler.replace_remove_macros(macro_map);
         compiler.src = compiler.out; compiler.normalize_string_literals();
