@@ -111,7 +111,7 @@ R"(-----------------------------------------------------------------------------
 -h/--help                : This command.
 -gh                      : Generate only platform dependent header with makeplusplus project structure.
 -gp <project-name>       : Generate complete project with makeplusplus project structure.
--gv <description-path>   : Generate visual studio solution and projects under 'projects' folder.
+-gv <description-path>   : Generate visual studio solution and projects under '<project>' folder.
 ---------------------------------------------------------------------------------------------------------------------)";
         
         int         argc_;
