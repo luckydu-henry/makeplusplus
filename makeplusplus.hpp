@@ -8,9 +8,9 @@
 #include <vector>
 #include <string>
 
-namespace tinyxml2 {
-    class XMLDocument;
-    class XMLElement;
+namespace msvc_xml {
+    class document;
+    class element;
 }
 
 namespace cpod {
@@ -34,8 +34,8 @@ namespace makexx {
         std::vector<std::string>                                      solution_configs_;
         // For visual studio project locate.
         std::unordered_map<std::string_view, std::string>             vcxproj_guid_map_;
-        std::unordered_map<std::string_view, tinyxml2::XMLDocument>   vcxproj_map_;
-        std::unordered_map<std::string_view, tinyxml2::XMLDocument>   vcxproj_filters_map_;
+        std::unordered_map<std::string_view, msvc_xml::document>   vcxproj_map_;
+        std::unordered_map<std::string_view, msvc_xml::document>   vcxproj_filters_map_;
         std::unordered_map<std::string_view, std::string_view>        vcxproj_filter_name_map_;
 
         enum AttachmentType {

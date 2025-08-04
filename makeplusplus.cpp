@@ -161,27 +161,24 @@ namespace makexx {
             return result;
         }
         
-        static tinyxml2::XMLElement* xml_find_child_with_index(std::string_view name, tinyxml2::XMLElement* root, std::size_t n = 0) {
-            tinyxml2::XMLElement* element = root->FirstChildElement(name.data());
+        static msvc_xml::element* xml_find_child_with_index(std::string_view name, msvc_xml::element* root, std::size_t n = 0) {
+            msvc_xml::element* element = root->begin_child_elem(name.data());
             for (std::size_t i = 0; i != n; ++i) {
-                element = element->NextSiblingElement(name.data());
+                element = element->next_sibling_elem(name.data());
             }
             return element;
         }
 
-        static void                  xml_save_map_to_file(std::unordered_map<std::string_view, tinyxml2::XMLDocument>& map, std::string_view ext, std::string_view rootdir = "") {
+        static void                  xml_save_map_to_file(std::unordered_map<std::string_view, msvc_xml::document>& map, std::string_view ext, std::string_view rootdir = "") {
             for (auto& [target_name, doc] : map) {
                 std::filesystem::path path = (std::filesystem::path(rootdir) / (std::string(target_name) + std::string(ext))).lexically_normal();
-                if (doc.SaveFile(path.generic_string().c_str()) != tinyxml2::XML_SUCCESS) {
-                    std::cerr << "Error saving " << ext << " file " << target_name << std::endl;
-                    std::exit(EXIT_FAILURE);
-                }
+                doc.SaveFile(path.generic_string().c_str());
             }
         }
 
-        static tinyxml2::XMLElement* xml_find_child_with_attribute(std::string_view name, tinyxml2::XMLElement* root, std::string_view attrib, std::string_view value) {
-            root = root->FirstChildElement(name.data());
-            for (; value != root->FindAttribute(attrib.data())->Value(); root = root->NextSiblingElement(name.data())) {}
+        static msvc_xml::element* xml_find_child_with_attribute(std::string_view name, msvc_xml::element* root, std::string_view attrib, std::string_view value) {
+            root = root->begin_child_elem(name.data());
+            for (; value != root->get_attrib(attrib.data()); root = root->next_sibling_elem(name.data())) {}
             return root;
         }
         
@@ -216,14 +213,14 @@ namespace makexx {
         }
 
         static const char* get_optimization_string(target_optimizations op) {
-            static const char* optimizations[] = { "",  "Disabled", "MinSize", "MaxSpeed", "Full" };
+            static const char* optimizations[] = { "",  "Disabled", "MinSpace", "MaxSpeed", "Full" };
             return optimizations[static_cast<std::uint32_t>(op)];
         }
 
-        static tinyxml2::XMLElement* find_item_definition_group_element(tinyxml2::XMLDocument& doc, std::string_view condition, std::string_view subrange) {
+        static msvc_xml::element* find_item_definition_group_element(msvc_xml::document& doc, std::string_view condition, std::string_view subrange) {
             return xml_find_child_with_attribute("ItemDefinitionGroup",
-                doc.RootElement(),
-                "Condition", condition)->FirstChildElement(subrange.data());
+                doc.root_elem(),
+                "Condition", condition)->begin_child_elem(subrange.data());
         }
         
         static auto  extract_config(std::string_view config) {
@@ -329,8 +326,8 @@ IDI_ICON1               ICON                    "{1:s}"
         static const char* itemStrings[] = { "", "ClInclude", "ClCompile", "Image", "ResourceCompile" };
         
         // Add filter to list.
-        tinyxml2::XMLDocument& docfilt = vcxproj_filters_map_[target_name];
-        tinyxml2::XMLElement*  itemGroupFileFilter = msvc_details::xml_find_child_with_index("ItemGroup", docfilt.RootElement(), type);
+        msvc_xml::document& docfilt = vcxproj_filters_map_[target_name];
+        msvc_xml::element*  itemGroupFileFilter = msvc_details::xml_find_child_with_index("ItemGroup", docfilt.root_elem(), type);
 
         std::string absrt =  std::filesystem::absolute(std::filesystem::path(filter_root).lexically_normal()).generic_string();
         
@@ -344,24 +341,24 @@ IDI_ICON1               ICON                    "{1:s}"
             GET_ABS_PATH(abspath)
             if (!abspath.empty()) {
                 vcxproj_filter_name_map_[abspath] = abspath;
-                msvc_details::xml_find_child_with_index("ItemGroup", docfilt.RootElement())
-                ->InsertNewChildElement("Filter")->SetAttribute("Include", abspath.data())
-                ->InsertNewChildElement("UniqueIdentifier")->SetText(msvc_details::generate_guid().c_str());
+                msvc_details::xml_find_child_with_index("ItemGroup", docfilt.root_elem())
+                ->insert_child_elem("Filter")->set_attrib("Include", abspath.data())
+                ->insert_child_elem("UniqueIdentifier")->set_txt(msvc_details::generate_guid().c_str());
             }
         }
         
-        tinyxml2::XMLDocument& docproj = vcxproj_map_[target_name];
-        tinyxml2::XMLElement*  itemGroupFiles = msvc_details::xml_find_child_with_index("ItemGroup", docproj.RootElement(), type);
+        msvc_xml::document& docproj = vcxproj_map_[target_name];
+        msvc_xml::element*  itemGroupFiles = msvc_details::xml_find_child_with_index("ItemGroup", docproj.root_elem(), type);
 
         for (auto& path : files) {
-            itemGroupFiles->InsertNewChildElement(itemStrings[type])->SetAttribute("Include", path.c_str());
+            itemGroupFiles->insert_child_elem(itemStrings[type])->set_attrib("Include", path.c_str());
             
-            tinyxml2::XMLElement* fclItem = itemGroupFileFilter->InsertNewChildElement(itemStrings[type]);
-            fclItem->SetAttribute("Include", path.c_str());
+            msvc_xml::element* fclItem = itemGroupFileFilter->insert_child_elem(itemStrings[type]);
+            fclItem->set_attrib("Include", path.c_str());
 
             GET_ABS_PATH(abspath)
             if (!abspath.empty()) {
-                fclItem->InsertNewChildElement("Filter")->SetText(abspath.data());
+                fclItem->insert_child_elem("Filter")->set_txt(abspath.data());
             }
         }
     }
@@ -370,16 +367,16 @@ IDI_ICON1               ICON                    "{1:s}"
         std::string_view scope, std::string_view elem, std::string_view value) {
         auto [mode, plat, tag, comb] = msvc_details::extract_config(config);
         msvc_details::find_item_definition_group_element(vcxproj_map_[target_name], comb,
-    scope.data())->InsertNewChildElement(elem.data())->SetText(value.data());
+    scope.data())->insert_child_elem(elem.data())->set_txt(value.data());
     }
 
     void visual_studio_project::target_append_property_group_(std::string_view target_name, std::string_view condition,
         std::string_view scope, std::string_view value) {
         auto [mode, plat, tag, comb] = msvc_details::extract_config(condition);
-        auto prop = msvc_details::xml_find_child_with_attribute("PropertyGroup", vcxproj_map_[target_name].RootElement(), "Label", "UserMacros")
-        ->NextSiblingElement("PropertyGroup");
-        for (;comb != prop->Attribute("Condition"); prop = prop->NextSiblingElement("PropertyGroup")) {}
-        prop->InsertNewChildElement(scope.data())->SetText(value.data());
+        auto prop = msvc_details::xml_find_child_with_attribute("PropertyGroup", vcxproj_map_[target_name].root_elem(), "Label", "UserMacros")
+        ->next_sibling_elem("PropertyGroup");
+        for (;comb != prop->get_attrib("Condition"); prop = prop->next_sibling_elem("PropertyGroup")) {}
+        prop->insert_child_elem(scope.data())->set_txt(value.data());
     }
 
 
@@ -393,88 +390,88 @@ IDI_ICON1               ICON                    "{1:s}"
         ////////////////////////////////////////////
         //                Filters                ///
         ////////////////////////////////////////////
-        tinyxml2::XMLDocument& docfilt = vcxproj_filters_map_[target_name];
-        docfilt.InsertEndChild(docfilt.NewDeclaration("xml version=\"1.0\" encoding=\"utf-8\""));
-        docfilt.InsertEndChild(docfilt.NewComment("Project generated by makeplusplus"));
+        msvc_xml::document& docfilt = vcxproj_filters_map_[target_name];
+        docfilt.insert_child_end(docfilt.make_decl("xml version=\"1.0\" encoding=\"utf-8\""));
+        docfilt.insert_child_end(docfilt.make_comm("Project generated by makeplusplus"));
         
         // Insert filter root project.
-        tinyxml2::XMLElement* filter = docfilt.NewElement("Project");
-        filter->SetAttribute("ToolsVersion", "4.0")->SetAttribute("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
-        docfilt.InsertEndChild(filter);
+        msvc_xml::element* filter = docfilt.make_elem("Project");
+        filter->set_attrib("ToolsVersion", "4.0")->set_attrib("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
+        docfilt.insert_child_end(filter);
 
-        filter->InsertNewComment("Global   filter defines")->ParentElement()->InsertNewChildElement("ItemGroup");
-        filter->InsertNewComment("Header   filter defines")->ParentElement()->InsertNewChildElement("ItemGroup");
-        filter->InsertNewComment("Source   filter defines")->ParentElement()->InsertNewChildElement("ItemGroup");
-        filter->InsertNewComment("Icon     filter defines")->ParentElement()->InsertNewChildElement("ItemGroup");
-        filter->InsertNewComment("Resource filter defines")->ParentElement()->InsertNewChildElement("ItemGroup");
+        filter->insert_comm("Global   filter defines")->parent_elem()->insert_child_elem("ItemGroup");
+        filter->insert_comm("Header   filter defines")->parent_elem()->insert_child_elem("ItemGroup");
+        filter->insert_comm("Source   filter defines")->parent_elem()->insert_child_elem("ItemGroup");
+        filter->insert_comm("Icon     filter defines")->parent_elem()->insert_child_elem("ItemGroup");
+        filter->insert_comm("Resource filter defines")->parent_elem()->insert_child_elem("ItemGroup");
         
         ////////////////////////////////////////////
         //                Project                ///
         ////////////////////////////////////////////
         vcxproj_guid_map_[target_name] = msvc_details::generate_guid();
-        tinyxml2::XMLDocument& docproj = vcxproj_map_[target_name];
+        msvc_xml::document& docproj = vcxproj_map_[target_name];
 
-        docproj.InsertEndChild(docproj.NewDeclaration("xml version=\"1.0\" encoding=\"utf-8\""));
-        docproj.InsertEndChild(docproj.NewComment("Project generated by makeplusplus"));
+        docproj.insert_child_end(docproj.make_decl("xml version=\"1.0\" encoding=\"utf-8\""));
+        docproj.insert_child_end(docproj.make_comm("Project generated by makeplusplus"));
 
         // Insert project root declarations.
-        tinyxml2::XMLElement* project = docproj.NewElement("Project");
-        project->SetAttribute("DefaultTargets", "Build")->SetAttribute("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
-        docproj.InsertEndChild(project);
+        msvc_xml::element* project = docproj.make_elem("Project");
+        project->set_attrib("DefaultTargets", "Build")->set_attrib("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
+        docproj.insert_child_end(project);
 
         // Insert ItemGroup project configurations
-        tinyxml2::XMLElement* itemGroupConfig = project->InsertNewChildElement("ItemGroup")->SetAttribute("Label", "ProjectConfigurations");
+        msvc_xml::element* itemGroupConfig = project->insert_child_elem("ItemGroup")->set_attrib("Label", "ProjectConfigurations");
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
-            itemGroupConfig->InsertNewChildElement("ProjectConfiguration")->SetAttribute("Include", tag.c_str())
-            ->InsertNewChildElement("Configuration")->SetText(mode.c_str()) ->ParentElement()
-            ->InsertNewChildElement("Platform")     ->SetText(plat.c_str()) ->ParentElement();
+            itemGroupConfig->insert_child_elem("ProjectConfiguration")->set_attrib("Include", tag.c_str())
+            ->insert_child_elem("Configuration")->set_txt(mode.c_str()) ->parent_elem()
+            ->insert_child_elem("Platform")     ->set_txt(plat.c_str()) ->parent_elem();
         }
 
         // Insert global configurations
-        project->InsertNewChildElement("PropertyGroup")->SetAttribute("Label", "Globals")
-        ->InsertNewChildElement("ProjectGuid")                  ->SetText(vcxproj_guid_map_[target_name].c_str()) ->ParentElement()
-        ->InsertNewChildElement("RootNamespace")                ->SetText(target_name.data())                     ->ParentElement()
-        ->InsertNewChildElement("ProjectName")                  ->SetText(target_name.data())                     ->ParentElement()
-        ->InsertNewChildElement("WindowsTargetPlatformVersion") ->SetText("10.0");
+        project->insert_child_elem("PropertyGroup")->set_attrib("Label", "Globals")
+        ->insert_child_elem("ProjectGuid")                  ->set_txt(vcxproj_guid_map_[target_name].c_str()) ->parent_elem()
+        ->insert_child_elem("RootNamespace")                ->set_txt(target_name.data())                     ->parent_elem()
+        ->insert_child_elem("ProjectName")                  ->set_txt(target_name.data())                     ->parent_elem()
+        ->insert_child_elem("WindowsTargetPlatformVersion") ->set_txt("10.0");
         
         // Import compile properties
-        project->InsertNewChildElement("Import")->SetAttribute("Project", "$(VCTargetsPath)\\Microsoft.Cpp.Default.props");
+        project->insert_child_elem("Import")->set_attrib("Project", "$(VCTargetsPath)\\Microsoft.Cpp.Default.props");
 
         // Insert configuration.
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
             std::string mode_upper_norm = msvc_details::normalize_to_uppercase_mode(mode);
             
-            project->InsertNewChildElement("PropertyGroup")
-            ->SetAttribute("Condition", comb.c_str())->SetAttribute("Label", "Configuration")
-            ->InsertNewChildElement("ConfigurationType") ->SetText("")            ->ParentElement()
-            ->InsertNewChildElement("PlatformToolset")   ->SetText("v143")        ->ParentElement()
-            ->InsertNewChildElement("CharacterSet")      ->SetText("Unicode")     ->ParentElement()
-            ->InsertNewChildElement("UseDebugLibraries") ->SetText(mode_upper_norm == "DEBUG");
+            project->insert_child_elem("PropertyGroup")
+            ->set_attrib("Condition", comb.c_str())->set_attrib("Label", "Configuration")
+            ->insert_child_elem("ConfigurationType") ->set_txt("")            ->parent_elem()
+            ->insert_child_elem("PlatformToolset")   ->set_txt("v143")        ->parent_elem()
+            ->insert_child_elem("CharacterSet")      ->set_txt("Unicode")     ->parent_elem()
+            ->insert_child_elem("UseDebugLibraries") ->set_txt(mode_upper_norm == "DEBUG" ? "true" : "false");
         }
-        project->InsertNewChildElement("Import")->SetAttribute("Project", "$(VCTargetsPath)\\Microsoft.Cpp.props");
+        project->insert_child_elem("Import")->set_attrib("Project", "$(VCTargetsPath)\\Microsoft.Cpp.props");
 
         // Import extension property list.
-        project->InsertNewChildElement("ImportGroup")->SetAttribute("Label", "ExtensionSettings");
-        project->InsertNewChildElement("ImportGroup")->SetAttribute("Label", "Shared");
+        project->insert_child_elem("ImportGroup")->set_attrib("Label", "ExtensionSettings");
+        project->insert_child_elem("ImportGroup")->set_attrib("Label", "Shared");
 
         // Use for loop to set all config releated properties.
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
-            project->InsertNewChildElement("ImportGroup")
-            ->SetAttribute("Label", "PropertySheets")->SetAttribute("Condition", comb.c_str())
-            ->InsertNewChildElement("Import")
-            ->SetAttribute("Project", "$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props")
-            ->SetAttribute("Condition", "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')")
-            ->SetAttribute("Label", "LocalAppDataPlatform");
+            project->insert_child_elem("ImportGroup")
+            ->set_attrib("Label", "PropertySheets")->set_attrib("Condition", comb.c_str())
+            ->insert_child_elem("Import")
+            ->set_attrib("Project", "$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props")
+            ->set_attrib("Condition", "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')")
+            ->set_attrib("Label", "LocalAppDataPlatform");
         }
 
-        project->InsertNewChildElement("PropertyGroup")->SetAttribute("Label", "UserMacros");
+        project->insert_child_elem("PropertyGroup")->set_attrib("Label", "UserMacros");
         
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
-            project->InsertNewChildElement("PropertyGroup")->SetAttribute("Condition", comb.c_str());
+            project->insert_child_elem("PropertyGroup")->set_attrib("Condition", comb.c_str());
         }
         
         // Insert item definitions.
@@ -483,31 +480,31 @@ IDI_ICON1               ICON                    "{1:s}"
 
             std::string mode_upper_norm = msvc_details::normalize_to_uppercase_mode(mode);
             
-            auto* idg = project->InsertNewChildElement("ItemDefinitionGroup")->SetAttribute("Condition", comb.c_str());
+            auto* idg = project->insert_child_elem("ItemDefinitionGroup")->set_attrib("Condition", comb.c_str());
             
-            auto* com = idg->InsertNewChildElement("ClCompile");
-                  com->InsertNewChildElement("WarningLevel")        ->SetText("Level3")  ->ParentElement()
-                     ->InsertNewChildElement("SDLCheck")            ->SetText(true)      ->ParentElement()
-                     ->InsertNewChildElement("ConformanceMode")     ->SetText(true)      ->ParentElement();
-            auto* lnk = idg->InsertNewChildElement("Link");
-                  lnk->InsertNewChildElement("GenerateDebugInformation")  ->SetText(true)    ->ParentElement();
+            auto* com = idg->insert_child_elem("ClCompile");
+                  com->insert_child_elem("WarningLevel")        ->set_txt("Level3")  ->parent_elem()
+                     ->insert_child_elem("SDLCheck")            ->set_txt("true")    ->parent_elem()
+                     ->insert_child_elem("ConformanceMode")     ->set_txt("true")    ->parent_elem();
+            auto* lnk = idg->insert_child_elem("Link");
+                  lnk->insert_child_elem("GenerateDebugInformation")  ->set_txt("true")    ->parent_elem();
             // Release specific defines
             if (mode_upper_norm != "DEBUG") {
-                com->InsertNewChildElement("FunctionLevelLinking")->SetText(true)    ->ParentElement()
-                   ->InsertNewChildElement("IntrinsicFunctions")  ->SetText(true)    ->ParentElement();
-                lnk->InsertNewChildElement("EnableCOMDATFolding") ->SetText(true)    ->ParentElement()
-                   ->InsertNewChildElement("OptimizeReferences")  ->SetText(true)    ->ParentElement();
+                com->insert_child_elem("FunctionLevelLinking")->set_txt("true")    ->parent_elem()
+                   ->insert_child_elem("IntrinsicFunctions")  ->set_txt("true")    ->parent_elem();
+                lnk->insert_child_elem("EnableCOMDATFolding") ->set_txt("true")    ->parent_elem()
+                   ->insert_child_elem("OptimizeReferences")  ->set_txt("true")    ->parent_elem();
             }
         }
 
         // include item group sequence 'project configuration''include' 'compile' 'icon' ‘resource’ 'dependencies' 
-        project->InsertNewComment("Include items")   ->ParentElement()->InsertNewChildElement("ItemGroup");
-        project->InsertNewComment("Source items")    ->ParentElement()->InsertNewChildElement("ItemGroup");
-        project->InsertNewChildElement("Import")     ->SetAttribute("Project", "$(VCTargetsPath)\\Microsoft.Cpp.targets");
-        project->InsertNewChildElement("ImportGroup")->SetAttribute("Label", "ExtensionTargets");
-        project->InsertNewComment("Icon Item")       ->ParentElement()->InsertNewChildElement("ItemGroup");
-        project->InsertNewComment("Resource Item")   ->ParentElement()->InsertNewChildElement("ItemGroup");
-        project->InsertNewComment("Dependency items")->ParentElement()->InsertNewChildElement("ItemGroup");
+        project->insert_comm("Include items")   ->parent_elem()->insert_child_elem("ItemGroup");
+        project->insert_comm("Source items")    ->parent_elem()->insert_child_elem("ItemGroup");
+        project->insert_child_elem("Import")     ->set_attrib("Project", "$(VCTargetsPath)\\Microsoft.Cpp.targets");
+        project->insert_child_elem("ImportGroup")->set_attrib("Label", "ExtensionTargets");
+        project->insert_comm("Icon Item")       ->parent_elem()->insert_child_elem("ItemGroup");
+        project->insert_comm("Resource Item")   ->parent_elem()->insert_child_elem("ItemGroup");
+        project->insert_comm("Dependency items")->parent_elem()->insert_child_elem("ItemGroup");
         
         return *this;
     }
@@ -533,21 +530,21 @@ IDI_ICON1               ICON                    "{1:s}"
 
     visual_studio_project& visual_studio_project::target_dependencies(std::string_view target_name,
         const std::vector<std::string>& dependencies) {
-        tinyxml2::XMLDocument& docproj   = vcxproj_map_[target_name];
-        tinyxml2::XMLElement*  itemGroup = msvc_details::xml_find_child_with_index("ItemGroup", docproj.RootElement(), Attach_Dependency);
+        msvc_xml::document& docproj   = vcxproj_map_[target_name];
+        msvc_xml::element*  itemGroup = msvc_details::xml_find_child_with_index("ItemGroup", docproj.root_elem(), Attach_Dependency);
         for (std::string_view dependency : dependencies) {
-            itemGroup->InsertNewChildElement("ProjectReference")->SetAttribute("Include",  (std::string(dependency) + ".vcxproj").c_str())
-            ->InsertNewChildElement("Project")->SetText(vcxproj_guid_map_[dependency].c_str());
+            itemGroup->insert_child_elem("ProjectReference")->set_attrib("Include",  (std::string(dependency) + ".vcxproj").c_str())
+            ->insert_child_elem("Project")->set_txt(vcxproj_guid_map_[dependency].c_str());
         }
         return *this;
     }
 
     visual_studio_project& visual_studio_project::target_type(std::string_view target_name, target_types type) {
-        tinyxml2::XMLDocument& docproj   = vcxproj_map_[target_name];
-        tinyxml2::XMLElement*  propgroup = msvc_details::xml_find_child_with_index("PropertyGroup", docproj.RootElement(), 1);
+        msvc_xml::document& docproj   = vcxproj_map_[target_name];
+        msvc_xml::element*  propgroup = msvc_details::xml_find_child_with_index("PropertyGroup", docproj.root_elem(), 1);
         for (auto& config : solution_configs_) {
-            propgroup->FirstChildElement("ConfigurationType")->SetText(msvc_details::get_project_type_string(type));
-            propgroup = propgroup->NextSiblingElement("PropertyGroup");
+            propgroup->begin_child_elem("ConfigurationType")->set_txt(msvc_details::get_project_type_string(type));
+            propgroup = propgroup->next_sibling_elem("PropertyGroup");
         }
         return *this;
     }
@@ -816,7 +813,7 @@ IDI_ICON1               ICON                    "{1:s}"
                     if (p->path().extension() == ext) {
                         result_paths.emplace_back(p->path().generic_string());
                     }
-                    }
+                }
                 return result_paths;
             }
             if (path.find("*") != std::string::npos) {
@@ -825,7 +822,7 @@ IDI_ICON1               ICON                    "{1:s}"
                     if (p->path().extension() == ext) {
                         result_paths.emplace_back(p->path().generic_string());
                     }
-                    }
+                }
                 return result_paths;
             }
             return {path};
@@ -981,5 +978,6 @@ vssln.fn(target, hd_var,__VA_ARGS__);           \
                  "--help"sv == argv_[1])    {
             std::cout << s_help_message << std::endl;
         }
+        return 0;
     }
 }

@@ -18,5 +18,6 @@ int main(int argc, char** argv) {
         return app();
     } catch (std::exception& e) {
         std::cerr << std::format("Exception caused: {:s}", e.what()) << std::endl;
+        return EXIT_FAILURE;
     }
 }

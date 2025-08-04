@@ -44,7 +44,7 @@ namespace makexx {
         TARGET_INTERMEDIATE_DIRECTORY = "build/int/x64_debug/";
     }
     namespace x64_release {
-        TARGET_OPTIMIZATION           = MXX_OPTIMIZATION_3;
+        TARGET_OPTIMIZATION           = MXX_OPTIMIZATION_1;
         TARGET_BINARY_DIRECTORY       = "build/bin/x64_release/";
         TARGET_INTERMEDIATE_DIRECTORY = "build/int/x64_release/";
     }
