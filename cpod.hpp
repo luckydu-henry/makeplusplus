@@ -47,6 +47,7 @@
 #include <unordered_set>
 #include <map>
 #include <unordered_map>
+#include <iostream>
 
 namespace cpod {
 
@@ -70,36 +71,9 @@ namespace cpod {
         name(n), value(&v), flag(f) {}
     };
 
-    struct output_format_view {
-        std::string content;
-        constexpr explicit output_format_view(const std::string& str)
-        : content(str) {}
-    };
-    
-    struct comment_view : output_format_view {
-        constexpr explicit comment_view(std::string_view c)
-        : output_format_view(std::format("//{:s}\n", c)) {}
-    };
-
-    struct macro_define_view : output_format_view {
-        constexpr explicit macro_define_view(std::string_view k, std::string_view v)
-        : output_format_view(std::format("#define {:s} {:s}\n", k, v)) {}
-    };
-
-    struct auto_indent_text_view : output_format_view {
-        template <typename ... Args>
-        constexpr explicit auto_indent_text_view(std::string_view t, const Args& ... args)
-        : output_format_view(std::vformat(t, std::make_format_args(args...))) {}
-    };
-
     // For convenient construction.
     template <class Ty>
     using var = variable_view<Ty>;
-
-    // Format views.
-    using com = comment_view;
-    using def = macro_define_view;
-    using txt = auto_indent_text_view;
 
     // This demonstrates what a basic serializer should contain.
     template <class Ty>
@@ -111,13 +85,11 @@ namespace cpod {
     
     class archive {
         std::string   content_;
-        std::size_t   base_indent_count_;
     public:
         
-        // Writer mode
-        archive(std::size_t bic = 0, char bi = ' ') : content_(), base_indent_count_(bic) {}
         // Reader mode
-        archive(std::string_view c) : content_(c), base_indent_count_(0) {}
+        archive() = default;
+        archive(std::string_view c) : content_(c) {}
         
         constexpr std::string&                   content()       { return content_; }
         constexpr std::string_view               content() const { return content_; }
@@ -130,44 +102,11 @@ namespace cpod {
         template <class Ty>
         constexpr std::string::const_iterator find_variable_begin(std::string_view var_name);
 
-        constexpr std::size_t&        indent()        { return base_indent_count_; }
-        constexpr std::size_t         indent()  const { return base_indent_count_; }
-
-        constexpr void append_indent() {
-            std::string buf(base_indent_count_, ' ');
-            content_.append(buf);
-        }
-
         template <class Ty>
-        constexpr archive& operator<<(variable_view<Ty> v) {
-            append_indent();
-            serializer<Ty>{}(*this, v.name, *v.value, v.flag);
-            return *this;
-        }
-
-        constexpr archive& operator<<(const output_format_view& v) {
-            append_indent();
-            content_.append(v.content);
-            return *this;
-        }
-
-        constexpr archive& operator<<(std::string_view str) {
-            content_.append(str);
-            return *this;
-        }
-
-        constexpr archive& operator<<(char c) {
-            content_.push_back(c);
-            return *this;
-        }
-
-        template <class Ty>
-        constexpr archive& operator>>(variable_view<Ty> v) {
+        constexpr void operator>>(variable_view<Ty> v) {
             if (auto it = find_variable_begin<Ty>(v.name); it != content_.cend()) {
                 serializer<Ty>{}(it, *v.value, v.flag);
-                return *this;
             }
-            throw std::invalid_argument("Can't find variable name!");
         }
     };
     
@@ -625,7 +564,8 @@ template <typename K, typename V, typename ... OtherStuff> \
             }
             else if constexpr (details::std_string_type_traits<Ty>::value) {
                 if constexpr (details::std_string_type_traits<Ty>::is_view) {
-                    throw std::invalid_argument("Reader can not accept a string_view");
+                    std::cout.rdbuf()->sputn("Reader can not accept a string_view\n", 37);
+                    std::abort();
                 }
                 const std::size_t len = std::strlen(&*iter);
                 value.resize(len);
@@ -1285,37 +1225,6 @@ template <typename K, typename V, typename ... OtherStuff> \
     ///                                Structure serializer helper
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    // Make user custom class's serialization easier.
-    template <class Ty, bool IsClass = false>
-    struct auto_structure_description_writer {
-        archive              *arch;
-        std::string_view      varname;
-        bool                  auto_indent;
-
-        constexpr explicit auto_structure_description_writer(archive& ac, std::string_view var_name, bool idn = true)
-        : arch(&ac), varname(var_name), auto_indent(idn) {
-            if (auto_indent) { arch->append_indent(); }
-            if constexpr (IsClass) {
-                arch->content().append("class ");
-            } else {
-                arch->content().append("struct ");
-            }
-            arch->content().append(serializer<Ty>::type_name);
-            arch->content().push_back('{');
-            if (auto_indent) { arch->indent() += 4; *arch << '\n'; }
-        }
-        
-        ~auto_structure_description_writer() {
-            if (auto_indent) {
-                arch->indent() -= 4;
-                arch->append_indent();
-            }
-            arch->content().push_back('}');
-            arch->content().append(varname);
-            arch->content().push_back(';');
-        }
-    };
-
     template <class Ty>
     constexpr auto std_text_value_of(const Ty& value) {
         std_basic_type_text_output_formatter formatter{0};
@@ -1328,13 +1237,6 @@ template <typename K, typename V, typename ... OtherStuff> \
     
     template <std_type Ty>
     struct serializer<Ty> {
-        constexpr void operator()(archive& arch, std::string_view name, const Ty& v, flag_t flag) {
-            std_basic_type_text_output_formatter formatter{flag};
-            arch.append_indent();
-            arch << std_type_name_string<Ty>() << ' '
-                 << name  << '='
-                 << std_type_value_string(v, formatter);
-        }
         constexpr void operator()(std::string::const_iterator& mem_begin, Ty& v, flag_t flag) {
             // Reader is much shorter and thus faster.
             std_basic_type_binary_input_reader reader{flag};

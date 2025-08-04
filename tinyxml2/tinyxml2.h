@@ -31,6 +31,8 @@ distribution.
 #include <cstring>
 #include <limits>
 
+#include "makeplusplus.hpp"
+
 #if defined( _DEBUG ) || defined (__DEBUG__)
 #   ifndef TINYXML2_DEBUG
 #       define TINYXML2_DEBUG
@@ -836,18 +838,7 @@ public:
     Whitespace WhitespaceMode() const	{
         return _whitespaceMode;
     }
-
-    /**
-    	Returns true if this document has a leading Byte Order Mark of UTF8.
-    */
-    bool HasBOM() const {
-        return _writeBOM;
-    }
-    /** Sets whether to write the BOM when writing the file.
-    */
-    void SetBOM( bool useBOM ) {
-        _writeBOM = useBOM;
-    }
+    
 
     /** Return the root element of DOM. Equivalent to FirstChildElement().
         To get the first node, use FirstChild().
@@ -891,12 +882,9 @@ private:
     document( const document& );	// not supported
     void operator=( const document& );	// not supported
 
-    bool			_writeBOM;
     bool			_processEntities;
     Whitespace		_whitespaceMode;
     char*			_charBuffer;
-    int				_parseCurLineNum;
-	int				_parsingDepth;
 	
 	// Memory tracking does add some overhead.
 	// However, the code assumes that you don't
@@ -932,32 +920,6 @@ private:
 		"XML_ELEMENT_DEPTH_EXCEEDED"
 	};
 
-	template <typename ... Args>
-    constexpr void print_error_and_exit( error_t error, int lineNum, std::format_string<Args...> fmt, Args&& ... args) {
-		std::cout << std::format("Error={:s} ErrorID={:d} Line number={:d} Error detail: ",
-			_errorNames[static_cast<std::uint32_t>(error)], static_cast<std::uint32_t>(error), lineNum) <<
-				std::format(fmt, std::forward<Args>(args)...) << std::endl;
-		std::exit(EXIT_FAILURE);
-	}
-
-	// Something of an obvious security hole, once it was discovered.
-	// Either an ill-formed XML or an excessively deep one can overflow
-	// the stack. Track stack depth, and error out if needed.
-	class DepthTracker {
-	public:
-		explicit DepthTracker(document * document) {
-			this->_document = document;
-			document->PushDepth();
-		}
-		~DepthTracker() {
-			_document->PopDepth();
-		}
-	private:
-		document * _document;
-	};
-	void PushDepth();
-	void PopDepth();
-
     template<class NodeType, size_t PoolElementSize>
     NodeType* CreateUnlinkedNode( MemPoolT<PoolElementSize>& pool );
 };
@@ -982,8 +944,6 @@ public:
     XMLPrinter(std::ostream& f, bool compact = false, int depth = 0);
     ~XMLPrinter() override = default;
 
-    /** If streaming, write the BOM and declaration. */
-    void PushHeader( bool writeBOM, bool writeDeclaration );
     /** If streaming, start writing an element.
         The element must be closed with CloseElement()
     */
@@ -1016,9 +976,19 @@ public:
 protected:
 	bool CompactMode( const element& )	{ return _compactMode; }
 
-    void PrintSpace( int depth );
-    void Write( const char* data, size_t size );
-    void Putc( char ch );
+    inline void PrintSpace( int depth ) {
+	    for( int i=0; i<depth; ++i ) {
+	        Write( "  " );
+	    }
+	}
+    
+    inline void Write( const char* data, size_t size ) {
+        _fp->write(data, static_cast<std::streamsize>(size));
+    }
+    
+    inline void Putc( char ch ) {
+        _fp->put(ch);
+    }
 
     inline void Write(const char* data) { Write(data, strlen(data)); }
 

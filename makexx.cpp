@@ -13,11 +13,6 @@
 #include "cpod.hpp"
 
 int main(int argc, char** argv) {
-    try {
-        makexx::make_application app(argc, argv);
-        return app();
-    } catch (std::exception& e) {
-        std::cerr << std::format("Exception caused: {:s}", e.what()) << std::endl;
-        return EXIT_FAILURE;
-    }
+    makexx::make_application app(argc, argv);
+    return app();
 }

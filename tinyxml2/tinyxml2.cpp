@@ -1009,12 +1009,9 @@ bool element::Accept( XMLVisitor* visitor ) const
     
 document::document( bool processEntities, Whitespace whitespaceMode ) :
     XMLNode( 0 ),
-    _writeBOM( false ),
     _processEntities( processEntities ),
     _whitespaceMode( whitespaceMode ),
-    _charBuffer( 0 ),
-    _parseCurLineNum( 0 ),
-	_parsingDepth(0) {
+    _charBuffer( 0 ) {
     _document = this;
 }
 
@@ -1047,15 +1044,6 @@ void document::Clear()
     
     delete [] _charBuffer;
     _charBuffer = 0;
-	_parsingDepth = 0;
-
-#if 0
-    _textPool.Trace( "text" );
-    _elementPool.Trace( "element" );
-    _commentPool.Trace( "comment" );
-    _attributePool.Trace( "attribute" );
-#endif
-    
 }
 
 
@@ -1137,19 +1125,14 @@ void document::DeleteNode( XMLNode* node )	{
 }
     
 
-void document::SaveFile( const char* filename, bool compact )
-{
-    if ( !filename ) {
-        TIXMLASSERT( false );
-        print_error_and_exit( error_t::file_could_not_be_opened, 0, "filename=<null>" );
-    }
-
+void document::SaveFile( const char* filename, bool compact ) {
     std::ofstream file(filename);
-    if ( !file.is_open() ) {
-        print_error_and_exit( error_t::file_could_not_be_opened, 0, "filename={:s}", filename );
+    if (file.good() ) {
+        SaveFile(file, compact);
+        file.close();
+        return;
     }
-    SaveFile(file, compact);
-    file.close();
+    std::cout.rdbuf()->sputn("File coult not be opened at line 0\n", 36);
 }
 
 
@@ -1162,21 +1145,6 @@ void document::SaveFile(std::ofstream& f, bool compact ) {
 
 void document::Print( XMLPrinter* streamer ) const {
     Accept( streamer );
-}
-
-
-void document::PushDepth()
-{
-	_parsingDepth++;
-	if (_parsingDepth == TINYXML2_MAX_ELEMENT_DEPTH) {
-		print_error_and_exit(error_t::depth_exceeded, _parseCurLineNum, "Element nesting is too deep." );
-	}
-}
-
-void document::PopDepth()
-{
-	TIXMLASSERT(_parsingDepth > 0);
-	--_parsingDepth;
 }
 
 XMLPrinter::XMLPrinter(std::ostream& f, bool compact, int depth) :
@@ -1205,24 +1173,6 @@ XMLPrinter::XMLPrinter(std::ostream& f, bool compact, int depth) :
     _restrictedEntityFlag[static_cast<unsigned char>('<')] = true;
     _restrictedEntityFlag[static_cast<unsigned char>('>')] = true;	// not required, but consistency is nice
 }
-
-void XMLPrinter::Write( const char* data, size_t size ) {
-    _fp->write(data, static_cast<std::streamsize>(size));
-}
-
-
-void XMLPrinter::Putc( char ch ) {
-    _fp->put(ch);
-}
-
-
-void XMLPrinter::PrintSpace( int depth )
-{
-    for( int i=0; i<depth; ++i ) {
-        Write( "  " );
-    }
-}
-
 
 void XMLPrinter::PrintString( const char* p, bool restricted )
 {
@@ -1275,18 +1225,6 @@ void XMLPrinter::PrintString( const char* p, bool restricted )
     }
     else {
         Write( p );
-    }
-}
-
-
-void XMLPrinter::PushHeader( bool writeBOM, bool writeDec )
-{
-    if ( writeBOM ) {
-        static const unsigned char bom[] = { TIXML_UTF_LEAD_0, TIXML_UTF_LEAD_1, TIXML_UTF_LEAD_2, 0 };
-        Write( reinterpret_cast< const char* >( bom ) );
-    }
-    if ( writeDec ) {
-        PushDeclaration( "xml version=\"1.0\"" );
     }
 }
 
@@ -1399,9 +1337,6 @@ void XMLPrinter::PushDeclaration( const char* value )
 bool XMLPrinter::VisitEnter( const document& doc )
 {
     _processEntities = doc.ProcessEntities();
-    if ( doc.HasBOM() ) {
-        PushHeader( true, false );
-    }
     return true;
 }
 

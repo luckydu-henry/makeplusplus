@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <format>
+#include <ostream>
 
 namespace msvc_xml {
     class document;
@@ -18,6 +20,12 @@ namespace cpod {
 }
 
 namespace makexx {
+
+    template <typename ... Args>
+    static inline void fprint(std::ostream& f, std::string_view fmt, Args&& ... args) {
+        auto buf = std::vformat(fmt, std::make_format_args(args...));
+        f.rdbuf()->sputn(buf.data(), buf.size());
+    }
 
     enum class target_types             : std::uint32_t { exe     = 1, lib, dll };
     enum class target_cpp_standards     : std::uint32_t { latest  = 1, cpp11, cpp14, cpp17, cpp20, cpp23, cpp26, };
