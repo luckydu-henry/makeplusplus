@@ -34,7 +34,6 @@
 #include <tuple>
 #include <type_traits>
 #include <charconv>  // from_chars and to_chars
-#include <format>    // for format api.
 
 // Container support headers.
 #include <array>
@@ -47,7 +46,6 @@
 #include <unordered_set>
 #include <map>
 #include <unordered_map>
-#include <iostream>
 
 namespace cpod {
 
@@ -97,17 +95,11 @@ namespace cpod {
         constexpr std::string::const_iterator    content_end() const { return content_.cend(); }
 
         // Compile writes compiled code stream to content_.
-        inline    std::string         compile_content_default(const std::unordered_map<std::string_view, std::string>& init_macro_map = {}) noexcept;
+        inline    std::string                    compile_content_default(const std::unordered_map<std::string_view, std::string>& init_macro_map = {}) noexcept;
 
         template <class Ty>
-        constexpr std::string::const_iterator find_variable_begin(std::string_view var_name);
-
-        template <class Ty>
-        constexpr void operator>>(variable_view<Ty> v) {
-            if (auto it = find_variable_begin<Ty>(v.name); it != content_.cend()) {
-                serializer<Ty>{}(it, *v.value, v.flag);
-            }
-        }
+        constexpr std::string::const_iterator    find_variable_begin(std::string_view var_name);
+        
     };
     
     namespace details {
@@ -276,11 +268,6 @@ template <typename K, typename V, typename ... OtherStuff> \
                 }
                 buf.push_back(',');
             }
-            template <class Formatter>
-            constexpr auto operator()(std::string& buf, Formatter formatter, const Value& value) {
-                std::invoke(formatter, buf, value);
-                buf.push_back(',');
-            }
             template <class Reader> // Depart only separate reader from writer so always set this to any random integer, method won't take over this.
             constexpr auto operator()(std::string::const_iterator& iter, Reader reader, Value& value, int department) {
                 std::invoke(reader, iter, value);
@@ -303,15 +290,6 @@ template <typename K, typename V, typename ... OtherStuff> \
                     iterate_std_template_recursive_helper<typename STL::key_type, typename STL::value_type::second_type>{}(buf, bin);
                 }
                 buf.back() = '>';
-                buf.push_back(',');
-            }
-            template <class Formatter>
-            constexpr auto operator()(std::string& buf, Formatter formatter, const STL& value) {
-                buf.push_back('{');
-                for (auto i = value.cbegin(); i != value.cend(); ++i) {
-                    iterate_std_template_stuff_impl<typename STL::value_type>{}(buf, formatter, *i);
-                }
-                buf.back() = '}';
                 buf.push_back(',');
             }
             template <class Reader>
@@ -349,14 +327,6 @@ template <typename K, typename V, typename ... OtherStuff> \
                 buf.back() = '>';
                 buf.push_back(',');
             }
-            template <class Formatter>
-            constexpr auto operator()(std::string& buf, Formatter formatter, const std::pair<F, S>& value) {
-                buf.push_back('{');
-                iterate_std_template_stuff_impl<std::remove_cvref_t<F>>{}(buf, formatter, value.first);
-                iterate_std_template_stuff_impl<std::remove_cvref_t<S>>{}(buf, formatter, value.second);
-                buf.back() = '}';
-                buf.push_back(',');
-            }
             template <class Reader>
             constexpr auto operator()(std::string::const_iterator& iter, Reader reader, std::pair<F, S>& value, int department) {
                 iterate_std_template_stuff_impl<F>{}(iter, reader, value.first, department);
@@ -366,13 +336,6 @@ template <typename K, typename V, typename ... OtherStuff> \
         
         template <typename Ty, std::size_t N>
         struct iterate_std_template_stuff_impl<std::array<Ty, N>> {
-            template <std::size_t Index = 0, class Formatter>
-            constexpr void write_array(std::string& buf, Formatter formatter, const std::array<Ty, N>& value) {
-                if constexpr (Index < N) {
-                    iterate_std_template_stuff_impl<Ty>{}(buf, formatter, std::get<Index>(value));
-                    write_array<Index + 1, Formatter>(buf, formatter, value);
-                }
-            }
             template <std::size_t Index = 0, class Reader>
             constexpr void read_array(std::string::const_iterator& iter, Reader reader, std::array<Ty, N>& value, int department) {
                 if constexpr (Index < N) {
@@ -396,13 +359,6 @@ template <typename K, typename V, typename ... OtherStuff> \
                 }
                 buf.push_back(',');
             }
-            template <class Formatter>
-            constexpr auto operator()(std::string& buf, Formatter formatter, const std::array<Ty, N>& value) {
-                buf.push_back('{');
-                write_array(buf, formatter, value);
-                buf.back() = '}';
-                buf.push_back(',');
-            }
             template <class Reader>
             constexpr auto operator()(std::string::const_iterator& iter, Reader reader, std::array<Ty, N>& value, int department) {
                 read_array(iter, reader, value, department);
@@ -411,13 +367,6 @@ template <typename K, typename V, typename ... OtherStuff> \
 
         template <class ... Args>
         struct iterate_std_template_stuff_impl<std::tuple<Args...>> {
-            template <std::size_t Index = 0, class Formatter>
-            constexpr void write_tuple(std::string& buf, Formatter formatter, const std::tuple<Args...>& value) {
-                if constexpr (Index < sizeof ... (Args)) {
-                    iterate_std_template_stuff_impl<std::tuple_element_t<Index, std::tuple<Args...>>>{}(buf, formatter, std::get<Index>(value));
-                    write_tuple<Index + 1, Formatter>(buf, formatter, value);
-                }
-            }
             template <std::size_t Index = 0, class Reader>
             constexpr void read_tuple(std::string::const_iterator& iter, Reader reader, std::tuple<Args...>& value, int department) {
                 if constexpr (Index < sizeof ... (Args)) {
@@ -434,13 +383,6 @@ template <typename K, typename V, typename ... OtherStuff> \
                 }
                 iterate_std_template_recursive_helper<Args...>{}(buf, bin);
                 buf.back() = '>';
-                buf.push_back(',');
-            }
-            template <class Formatter>
-            constexpr auto operator()(std::string& buf, Formatter formatter, const std::tuple<Args...>& value) {
-                buf.push_back('{');
-                write_tuple(buf, formatter, value);
-                buf.back() = '}';
                 buf.push_back(',');
             }
             template <class Reader>
@@ -486,9 +428,6 @@ template <typename K, typename V, typename ... OtherStuff> \
         return buffer;
     }
 
-    template <class Ty>
-    constexpr auto std_text_value_of(const Ty& value);
-
     typedef enum std_basic_io_flag{
         integer_binary            = 1 << 1,
         integer_heximal           = 1 << 2,
@@ -496,62 +435,6 @@ template <typename K, typename V, typename ... OtherStuff> \
         floating_point_scientific = 1 << 4,
         string_use_raw            = 1 << 5,
     } std_basic_io_flag;
-
-    struct std_basic_type_text_output_formatter {
-        flag_t flag{};
-        
-        template <details::std_basic_type Ty>
-        constexpr void operator()(std::string& buf, const Ty& value) {
-            if constexpr (details::std_string_type_traits<Ty>::value) {
-                if (flag & string_use_raw) {
-                    buf.append("R\"(").append(value).append(")\"");
-                }
-                else {
-                    std::string cache;
-                    cache.reserve(value.size());
-                    for (std::size_t i = 0; i != value.size(); ++i) {
-                        switch (value[i]) {
-                        default: cache.push_back(value[i]); break;
-                        case '\n': cache.append("\\n");     break;
-                        case '\t': cache.append("\\t");     break;
-                        case '\r': cache.append("\\r");     break;
-                        case '\b': cache.append("\\b");     break;
-                        case '\v': cache.append("\\v");     break;
-                        case '\f': cache.append("\\f");     break;
-                        case '\a': cache.append("\\a");     break;
-                        case '\"': cache.append("\\\"");    break;
-                        case '\\': cache.append("\\");      break;
-                        }
-                    }
-                    buf.push_back('\"');
-                    buf.append(cache);
-                    buf.push_back('\"');
-                }
-            }
-            else if constexpr (std::floating_point<Ty>) {
-                std::chars_format fmt = std::chars_format::general;
-                if (flag & floating_point_fixed)      { fmt = std::chars_format::fixed; }
-                if (flag & floating_point_scientific) { fmt = std::chars_format::scientific; }
-                char buffer[32];
-                auto end = std::to_chars(buffer, buffer + 32, value, fmt).ptr;
-                buf.append(buffer, end - buffer);
-            }
-            else if constexpr (std::integral<Ty> && !std::is_same_v<Ty, bool>) {
-                int base = 10;
-                if constexpr (std::is_unsigned_v<Ty>) {
-                    if (flag & integer_binary)  { base = 2;   buf.append("0b"); }
-                    if (flag & integer_heximal) { base = 16;  buf.append("0x"); }
-                }
-                char buffer[32];
-                auto end = std::to_chars(buffer, buffer + 32, value, base).ptr;
-                buf.append(buffer, end - buffer);
-            }
-            else if constexpr (std::is_same_v<Ty, bool>) {
-                std::string_view v = value ? "true" : "false";
-                buf.append(v);
-            }
-        }
-    };
 
     struct std_basic_type_binary_input_reader {
         flag_t flag{};
@@ -564,7 +447,6 @@ template <typename K, typename V, typename ... OtherStuff> \
             }
             else if constexpr (details::std_string_type_traits<Ty>::value) {
                 if constexpr (details::std_string_type_traits<Ty>::is_view) {
-                    std::cout.rdbuf()->sputn("Reader can not accept a string_view\n", 37);
                     std::abort();
                 }
                 const std::size_t len = std::strlen(&*iter);
@@ -643,6 +525,7 @@ template <typename K, typename V, typename ... OtherStuff> \
                         // Single line comment.
                         if (src[i + 1] == '/') {
                             i = src.find('\n', i + 1);
+
                             if (i == std::string_view::npos) {
                                 return;
                             }
@@ -1219,16 +1102,6 @@ template <typename K, typename V, typename ... OtherStuff> \
         compiler.generate_byte_code(token_list);
         content_ = compiler.out;
         return std::move(compiler.msg);
-    }
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////
-    ///                                Structure serializer helper
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    template <class Ty>
-    constexpr auto std_text_value_of(const Ty& value) {
-        std_basic_type_text_output_formatter formatter{0};
-        return std_type_value_string(value, formatter);
     }
     
     //////////////////////////////////////////////////////////////////////////////////////////////////////////

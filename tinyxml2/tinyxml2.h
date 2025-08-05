@@ -30,47 +30,9 @@ distribution.
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <variant>
 
 #include "makeplusplus.hpp"
-
-#if defined( _DEBUG ) || defined (__DEBUG__)
-#   ifndef TINYXML2_DEBUG
-#       define TINYXML2_DEBUG
-#   endif
-#endif
-
-#ifdef _MSC_VER
-#   pragma warning(push)
-#   pragma warning(disable: 4251)
-#endif
-
-#if !defined(TIXMLASSERT)
-#if defined(TINYXML2_DEBUG)
-#   if defined(_MSC_VER)
-#       // "(void)0," is for suppressing C4127 warning in "assert(false)", "assert(true)" and the like
-#       define TIXMLASSERT( x )           do { if ( !((void)0,(x))) { __debugbreak(); } } while(false)
-#   elif defined (ANDROID_NDK)
-#       include <android/log.h>
-#       define TIXMLASSERT( x )           do { if ( !(x)) { __android_log_assert( "assert", "grinliz", "ASSERT in '%s' at %d.", __FILE__, __LINE__ ); } } while(false)
-#   else
-#       include <assert.h>
-#       define TIXMLASSERT                assert
-#   endif
-#else
-#   define TIXMLASSERT( x )               do {} while(false)
-#endif
-#endif
-
-/* Versioning, past 1.0.14:
-	http://semver.org/
-*/
-static const int TIXML2_MAJOR_VERSION = 11;
-static const int TIXML2_MINOR_VERSION = 0;
-static const int TIXML2_PATCH_VERSION = 0;
-
-#define TINYXML2_MAJOR_VERSION 11
-#define TINYXML2_MINOR_VERSION 0
-#define TINYXML2_PATCH_VERSION 0
 
 // A fixed element depth limit is problematic. There needs to be a
 // limit to avoid a stack overflow. However, that limit varies per
@@ -79,27 +41,27 @@ static const int TIXML2_PATCH_VERSION = 0;
 // so there needs to be a limit in place.
 static const int TINYXML2_MAX_ELEMENT_DEPTH = 500;
 
-namespace msvc_xml
-{
+namespace msvc_xml {
+    
 class document;
 class element;
+class printer;
+    
 class XMLAttribute;
 class XMLComment;
 class XMLText;
 class XMLDeclaration;
-class XMLPrinter;
 
 class StrPair {
 public:
     enum Mode {
-        NEEDS_ENTITY_PROCESSING			= 0x01,
         NEEDS_NEWLINE_NORMALIZATION		= 0x02,
         NEEDS_WHITESPACE_COLLAPSING     = 0x04,
 
-        TEXT_ELEMENT		            = NEEDS_ENTITY_PROCESSING | NEEDS_NEWLINE_NORMALIZATION,
+        TEXT_ELEMENT		            = NEEDS_NEWLINE_NORMALIZATION,
         TEXT_ELEMENT_LEAVE_ENTITIES		= NEEDS_NEWLINE_NORMALIZATION,
         ATTRIBUTE_NAME		            = 0,
-        ATTRIBUTE_VALUE		            = NEEDS_ENTITY_PROCESSING | NEEDS_NEWLINE_NORMALIZATION,
+        ATTRIBUTE_VALUE		            = NEEDS_NEWLINE_NORMALIZATION,
         ATTRIBUTE_VALUE_LEAVE_ENTITIES  = NEEDS_NEWLINE_NORMALIZATION,
         COMMENT							= NEEDS_NEWLINE_NORMALIZATION
     };
@@ -108,8 +70,6 @@ public:
     ~StrPair();
 
     void Set( char* start, char* end, int flags ) {
-        TIXMLASSERT( start );
-        TIXMLASSERT( end );
         Reset();
         _start  = start;
         _end    = end;
@@ -117,19 +77,9 @@ public:
     }
 
     const char* GetStr();
-
-    bool Empty() const {
-        return _start == _end;
-    }
-
-    void SetInternedStr( const char* str ) {
-        Reset();
-        _start = const_cast<char*>(str);
-    }
-
+    
     void SetStr( const char* str, int flags=0 );
 
-    void TransferTo( StrPair* other );
 	void Reset();
 
 private:
@@ -168,14 +118,12 @@ public:
     }
 
     void Push( T t ) {
-        TIXMLASSERT( _size < INT_MAX );
         EnsureCapacity( _size+1 );
         _mem[_size] = t;
         ++_size;
     }
 
     T* PushArr( size_t count ) {
-        TIXMLASSERT( _size <= SIZE_MAX - count );
         EnsureCapacity( _size+count );
         T* ret = &_mem[_size];
         _size += count;
@@ -183,13 +131,11 @@ public:
     }
 
     T Pop() {
-        TIXMLASSERT( _size > 0 );
         --_size;
         return _mem[_size];
     }
 
     void PopArr( size_t count ) {
-        TIXMLASSERT( _size >= count );
         _size -= count;
     }
 
@@ -198,17 +144,14 @@ public:
     }
 
     T& operator[](size_t i) {
-        TIXMLASSERT( i < _size );
         return _mem[i];
     }
 
     const T& operator[](size_t i) const {
-        TIXMLASSERT( i < _size );
         return _mem[i];
     }
 
     const T& PeekTop() const            {
-        TIXMLASSERT( _size > 0 );
         return _mem[ _size - 1];
     }
 
@@ -217,13 +160,10 @@ public:
     }
 
     size_t Capacity() const {
-        TIXMLASSERT( _allocated >= INITIAL_SIZE );
         return _allocated;
     }
 
 	void SwapRemove(size_t i) {
-		TIXMLASSERT(i < _size);
-		TIXMLASSERT(_size > 0);
 		_mem[i] = _mem[_size - 1];
 		--_size;
 	}
@@ -241,12 +181,9 @@ public:
 private:
 
     void EnsureCapacity( size_t cap ) {
-        TIXMLASSERT( cap > 0 );
         if ( cap > _allocated ) {
-            TIXMLASSERT( cap <= SIZE_MAX / 2 / sizeof(T));
             const size_t newAllocated = cap * 2;
             T* newMem = new T[newAllocated];
-            TIXMLASSERT( newAllocated >= _size );
             memcpy( newMem, _mem, sizeof(T) * _size );	// warning: not using constructors, only works for PODs
             if ( _mem != _pool ) {
                 delete [] _mem;
@@ -263,25 +200,18 @@ private:
 };
 
 
-class MemPool
-{
+class MemPool {
 public:
-    MemPool() {}
-    virtual ~MemPool() {}
-
-    virtual size_t ItemSize() const = 0;
-    virtual void* Alloc() = 0;
-    virtual void Free( void* ) = 0;
+    virtual void Free(void*) = 0;
     virtual void SetTracked() = 0;
+    virtual ~MemPool() = default;
 };
-
-
+    
 template< size_t ITEM_SIZE >
-class MemPoolT : public MemPool
-{
+class MemPoolT : public MemPool {
 public:
     MemPoolT() : _blockPtrs(), _root(0), _currentAllocs(0), _nAllocs(0), _maxAllocs(0), _nUntracked(0)	{}
-    ~MemPoolT() {
+    ~MemPoolT() override {
         MemPoolT< ITEM_SIZE >::Clear();
     }
 
@@ -298,14 +228,14 @@ public:
         _nUntracked = 0;
     }
 
-    virtual size_t ItemSize() const override {
+    size_t ItemSize() const {
         return ITEM_SIZE;
     }
     size_t CurrentAllocs() const {
         return _currentAllocs;
     }
 
-    virtual void* Alloc() override{
+    void* Alloc() {
         if ( !_root ) {
             // Need a new block.
             Block* block = new Block;
@@ -319,7 +249,6 @@ public:
             _root = blockItems;
         }
         Item* const result = _root;
-        TIXMLASSERT( result != 0 );
         _root = _root->next;
 
         ++_currentAllocs;
@@ -331,30 +260,18 @@ public:
         return result;
     }
 
-    virtual void Free( void* mem ) override {
+    void Free( void* mem ) override {
         if ( !mem ) {
             return;
         }
         --_currentAllocs;
         Item* item = static_cast<Item*>( mem );
-#ifdef TINYXML2_DEBUG
-        memset( item, 0xfe, sizeof( *item ) );
-#endif
         item->next = _root;
         _root = item;
-    }
-    void Trace( const char* name ) {
-        printf( "Mempool %s watermark=%d [%dk] current=%d size=%d nAlloc=%d blocks=%d\n",
-                name, _maxAllocs, _maxAllocs * ITEM_SIZE / 1024, _currentAllocs,
-                ITEM_SIZE, _nAllocs, _blockPtrs.Size() );
     }
 
     void SetTracked() override {
         --_nUntracked;
-    }
-
-    size_t Untracked() const {
-        return _nUntracked;
     }
 
 	// This number is perf sensitive. 4k seems like a good tradeoff on my machine.
@@ -391,87 +308,14 @@ private:
 };
 
 
-
-class XMLVisitor
-{
-public:
-    virtual ~XMLVisitor() {}
-
-    /// Visit a document.
-    virtual bool VisitEnter( const document& /*doc*/ )			{
-        return true;
-    }
-    /// Visit a document.
-    virtual bool VisitExit( const document& /*doc*/ )			{
-        return true;
-    }
-
-    /// Visit an element.
-    virtual bool VisitEnter( const element& /*element*/, const XMLAttribute* /*firstAttribute*/ )	{
-        return true;
-    }
-    /// Visit an element.
-    virtual bool VisitExit( const element& /*element*/ )			{
-        return true;
-    }
-
-    /// Visit a declaration.
-    virtual bool Visit( const XMLDeclaration& /*declaration*/ )		{
-        return true;
-    }
-    /// Visit a text node.
-    virtual bool Visit( const XMLText& /*text*/ )					{
-        return true;
-    }
-    /// Visit a comment node.
-    virtual bool Visit( const XMLComment& /*comment*/ )				{
-        return true;
-    }
-};
-
-// WARNING: must match XMLDocument::_errorNames[]
-enum class error_t : std::uint32_t {
-    success = 0,
-    no_attrib,
-    wrong_attrib_type,
-    file_not_found,
-    file_could_not_be_opened,
-    file_read_error,
-    error_parsing_element,
-    error_parsing_attribute,
-    error_parsing_text,
-    error_parsing_cdata,
-    error_parsing_comment,
-    error_parsing_declaration,
-    error_empty_document,
-    error_mismatched_element,
-    error_parsing,
-    can_not_convert_text,
-    no_text_node,
-	depth_exceeded,
-
-	error_count
-};
-
-
 class XMLUtil
 {
 public:
-
-    inline static bool StringEqual( const char* p, const char* q)  {
-        if ( p == q ) {
-            return true;
-        }
-        TIXMLASSERT( p );
-        TIXMLASSERT( q );
-        return strcmp( p, q) == 0;
+    inline static bool StringEqual( std::string_view p, std::string_view q)  {
+        return p == q;
     }
-
-    static const char* GetCharacterRef( const char* p, char* value, int* length );
-    static void        ConvertUTF32ToUTF8( unsigned long input, char* output, int* length );
-
 };
-	
+
 class XMLNode
 {
     friend class document;
@@ -479,11 +323,9 @@ class XMLNode
 public:
 
     const document* GetDocument() const	{
-        TIXMLASSERT( _document );
         return _document;
     }
     document* GetDocument()				{
-        TIXMLASSERT( _document );
         return _document;
     }
 
@@ -492,30 +334,10 @@ public:
 
     const char* Value() const;
 
-    void SetValue( const char* val, bool staticMem=false );
-
-    int GetLineNum() const { return _parseLineNum; }
-
-    const XMLNode*	Parent() const			{
-        return _parent;
-    }
-
-    XMLNode*  Parent()						{
-        return _parent;
-    }
-
-	template <class Ty>
-	Ty*       ParentAs() {
-    	return dynamic_cast<Ty*>(this->Parent());
-    }
-
-	template <class Ty>
-	const Ty* ParentAs() const {
-    	return dynamic_cast<const Ty*>(this->Parent());
-    }
-
-	element*       parent_elem()       { return ParentAs<element>(); }
-	const element* parent_elem() const { return ParentAs<element>(); }
+    void SetValue( const char* val);
+    
+	element*       parent_elem()       { return reinterpret_cast<element*>(_parent); }
+	const element* parent_elem() const { return reinterpret_cast<const element*>(_parent); }
 
     bool            NoChildren() const					{
         return !_firstChild;
@@ -589,7 +411,7 @@ public:
     virtual XMLNode*    ShallowClone( document* document ) const = 0;
 	XMLNode*            DeepClone( document* target ) const;
     virtual bool        ShallowEqual( const XMLNode* compare ) const = 0;
-    virtual bool        Accept( XMLVisitor* visitor ) const = 0;
+    virtual bool        Accept(printer* visitor) const = 0;
 
 	/**
 		Set user data into the XMLNode. TinyXML-2 in
@@ -634,7 +456,7 @@ class XMLText : public XMLNode
 {
     friend class document;
 public:
-    virtual bool Accept( XMLVisitor* visitor ) const override;
+    virtual bool Accept(printer* visitor ) const override;
     virtual XMLNode* ShallowClone( document* document ) const override;
     virtual bool ShallowEqual( const XMLNode* compare ) const override;
 
@@ -650,7 +472,7 @@ class XMLComment : public XMLNode
     friend class document;
 public:
 
-    virtual bool Accept( XMLVisitor* visitor ) const override;
+    virtual bool Accept( printer* visitor ) const override;
 
     virtual XMLNode* ShallowClone( document* document ) const override;
     virtual bool ShallowEqual( const XMLNode* compare ) const override;
@@ -666,7 +488,7 @@ class XMLDeclaration : public XMLNode
     friend class document;
 public:
 
-    virtual bool Accept( XMLVisitor* visitor ) const override;
+    virtual bool Accept(  printer* visitor ) const override;
 
     virtual XMLNode* ShallowClone( document* document ) const override;
     virtual bool ShallowEqual( const XMLNode* compare ) const override;
@@ -686,9 +508,6 @@ public:
     /// The value of the attribute.
     const char* Value() const;
 
-    /// Gets the line number the attribute is in, if the document was parsed from a file.
-    int GetLineNum() const { return _parseLineNum; }
-
     /// The next attribute in the list.
     const XMLAttribute* Next() const {
         return _next;
@@ -698,16 +517,15 @@ public:
     void SetAttribute( const char* value );
 
 private:
-    enum { BUF_SIZE = 200 };
 
-    XMLAttribute() : _name(), _value(),_parseLineNum( 0 ), _next( 0 ), _memPool( 0 ) {}
+    XMLAttribute() : _name(), _value() , _next( 0 ), _memPool( 0 ) {}
     virtual ~XMLAttribute() = default;
 
     void SetName( const char* name );
 
     mutable StrPair _name;
     mutable StrPair _value;
-    int             _parseLineNum;
+    
     XMLAttribute*   _next;
     MemPool*        _memPool;
 };
@@ -726,11 +544,11 @@ public:
         return Value();
     }
     /// Set the name of the element.
-    void SetName( const char* str, bool staticMem=false )	{
-        SetValue( str, staticMem );
+    void SetName( const char* str)	{
+        SetValue(str);
     }
 	
-    virtual bool Accept( XMLVisitor* visitor ) const override;
+    virtual bool Accept(  printer* visitor ) const override;
 
     const char* get_attrib( const char* name, const char* value=0 ) const;
 	
@@ -753,8 +571,6 @@ public:
     }
     /// Query a specific attribute in the list.
     const XMLAttribute* find_attrib( const char* name ) const;
-    
-    const char* GetText() const;
     
 	element* set_txt( const char* inText );
 	
@@ -800,14 +616,6 @@ private:
     XMLAttribute* _rootAttribute;
 };
 
-
-enum Whitespace {
-    PRESERVE_WHITESPACE,
-    COLLAPSE_WHITESPACE,
-    PEDANTIC_WHITESPACE
-};
-
-
 /** A Document binds together all the functionality.
 	It can be saved, loaded, and printed to the screen.
 	All Nodes are connected and allocated to a Document.
@@ -825,20 +633,11 @@ class document : public XMLNode
     friend class XMLUnknown;
 public:
     /// constructor
-    document( bool processEntities = true, Whitespace whitespaceMode = PRESERVE_WHITESPACE );
+    document();
     ~document();
-	
 
     void   SaveFile( const char* filename, bool compact = false );
     void   SaveFile(std::ofstream& f, bool compact = false );
-
-    bool ProcessEntities() const		{
-        return _processEntities;
-    }
-    Whitespace WhitespaceMode() const	{
-        return _whitespaceMode;
-    }
-    
 
     /** Return the root element of DOM. Equivalent to FirstChildElement().
         To get the first node, use FirstChild().
@@ -850,8 +649,8 @@ public:
         return begin_child_elem();
     }
     
-    void Print( XMLPrinter* streamer) const;
-    virtual bool Accept( XMLVisitor* visitor ) const override;
+    void Print( printer* streamer) const;
+    virtual bool Accept(  printer* visitor ) const override;
     
     element* make_elem( const char* name );
 
@@ -879,11 +678,7 @@ public:
     }
 
 private:
-    document( const document& );	// not supported
-    void operator=( const document& );	// not supported
 
-    bool			_processEntities;
-    Whitespace		_whitespaceMode;
     char*			_charBuffer;
 	
 	// Memory tracking does add some overhead.
@@ -894,31 +689,10 @@ private:
 	// and the performance is the same.
 	DynArray<XMLNode*, 10> _unlinked;
 
-    MemPoolT< sizeof(element) >	 _elementPool;
-    MemPoolT< sizeof(XMLAttribute) > _attributePool;
-    MemPoolT< sizeof(XMLText) >		 _textPool;
-    MemPoolT< sizeof(XMLComment) >	 _commentPool;
-
-	static constexpr std::string_view _errorNames[static_cast<uint32_t>(error_t::error_count)] = {
-		"XML_SUCCESS",
-		"XML_NO_ATTRIBUTE",
-		"XML_WRONG_ATTRIBUTE_TYPE",
-		"XML_ERROR_FILE_NOT_FOUND",
-		"XML_ERROR_FILE_COULD_NOT_BE_OPENED",
-		"XML_ERROR_FILE_READ_ERROR",
-		"XML_ERROR_PARSING_ELEMENT",
-		"XML_ERROR_PARSING_ATTRIBUTE",
-		"XML_ERROR_PARSING_TEXT",
-		"XML_ERROR_PARSING_CDATA",
-		"XML_ERROR_PARSING_COMMENT",
-		"XML_ERROR_PARSING_DECLARATION",
-		"XML_ERROR_EMPTY_DOCUMENT",
-		"XML_ERROR_MISMATCHED_ELEMENT",
-		"XML_ERROR_PARSING",
-		"XML_CAN_NOT_CONVERT_TEXT",
-		"XML_NO_TEXT_NODE",
-		"XML_ELEMENT_DEPTH_EXCEEDED"
-	};
+    MemPoolT<sizeof(element)>	     _elementPool;
+    MemPoolT<sizeof(XMLAttribute)>   _attributePool;
+    MemPoolT<sizeof(XMLText)>		 _textPool;
+    MemPoolT<sizeof(XMLComment)>	 _commentPool;
 
     template<class NodeType, size_t PoolElementSize>
     NodeType* CreateUnlinkedNode( MemPoolT<PoolElementSize>& pool );
@@ -927,22 +701,18 @@ private:
 template<class NodeType, size_t PoolElementSize>
 inline NodeType* document::CreateUnlinkedNode( MemPoolT<PoolElementSize>& pool )
 {
-    TIXMLASSERT( sizeof( NodeType ) == PoolElementSize );
-    TIXMLASSERT( sizeof( NodeType ) == pool.ItemSize() );
     NodeType* returnNode = new (pool.Alloc()) NodeType( this );
-    TIXMLASSERT( returnNode );
     returnNode->_memPool = &pool;
 
 	_unlinked.Push(returnNode);
     return returnNode;
 }
 	
-class XMLPrinter : public XMLVisitor
-{
+class printer final {
 public:
 
-    XMLPrinter(std::ostream& f, bool compact = false, int depth = 0);
-    ~XMLPrinter() override = default;
+    printer(std::ostream& f, bool compact = false, int depth = 0);
+    ~printer() = default;
 
     /** If streaming, start writing an element.
         The element must be closed with CloseElement()
@@ -951,76 +721,43 @@ public:
     /// If streaming, add an attribute to an open element.
     void PushAttribute( const char* name, const char* value );
     /// If streaming, close the Element.
-    virtual void CloseElement( bool compactMode=false );
+    void CloseElement( bool compactMode=false );
 
     /// Add a text node.
-    void PushText( const char* text);
-
-    /// Add a comment
-    void PushComment( const char* comment );
-
+    void PushText       ( const char* text);
+    void PushComment    ( const char* comment );
     void PushDeclaration( const char* value );
-
-    virtual bool VisitEnter( const document& /*doc*/ ) override;
-    virtual bool VisitExit( const document& /*doc*/ ) override	{
+    
+    bool VisitEnter( const document& /*doc*/ );
+    
+    bool VisitExit( const document& /*doc*/ ) {
         return true;
     }
 
-    virtual bool VisitEnter( const element& elem, const XMLAttribute* attribute ) override;
-    virtual bool VisitExit( const element& element ) override;
+    bool VisitEnter( const element& elem, const XMLAttribute* attribute );
+    bool VisitExit( const element& element );
 
-    virtual bool Visit( const XMLText& text ) override;
-    virtual bool Visit( const XMLComment& comment ) override;
-    virtual bool Visit( const XMLDeclaration& declaration ) override;
+    bool Visit( const XMLText& text );
+    bool Visit( const XMLComment& comment );
+    bool Visit( const XMLDeclaration& declaration );
 
 protected:
 	bool CompactMode( const element& )	{ return _compactMode; }
-
-    inline void PrintSpace( int depth ) {
-	    for( int i=0; i<depth; ++i ) {
-	        Write( "  " );
-	    }
-	}
-    
-    inline void Write( const char* data, size_t size ) {
-        _fp->write(data, static_cast<std::streamsize>(size));
-    }
-    
-    inline void Putc( char ch ) {
-        _fp->put(ch);
-    }
-
-    inline void Write(const char* data) { Write(data, strlen(data)); }
-
     void SealElementIfJustOpened();
-    bool _elementJustOpened;
-    DynArray< const char*, 10 > _stack;
 
 private:
     void PrepareForNewNode( bool compactMode );
-    void PrintString( const char*, bool restrictedEntitySet );	// prints out, after detecting entities.
 
-    bool             _firstElement;
-	std::ostream*    _fp;
-    int              _depth;
-    int              _textDepth;
-    bool             _processEntities;
-	bool             _compactMode;
-
-    enum {
-        ENTITY_RANGE = 64,
-        BUF_SIZE = 200
-    };
-    bool _entityFlag[ENTITY_RANGE];
-    bool _restrictedEntityFlag[ENTITY_RANGE];
-
+    bool                           _firstElement;
+	std::ostream*                  _fp;
+    int                            _depth;
+    int                            _textDepth;
+	bool                           _compactMode;
+    bool                           _elementJustOpened;
+    DynArray< const char*, 10 >    _stack;
 };
 
 
 } // namespace tinyxml2
-
-#if defined(_MSC_VER)
-#   pragma warning(pop)
-#endif
 
 #endif // TINYXML2_INCLUDED

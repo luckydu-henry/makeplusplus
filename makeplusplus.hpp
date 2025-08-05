@@ -7,8 +7,6 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
-#include <format>
-#include <ostream>
 
 namespace msvc_xml {
     class document;
@@ -21,8 +19,11 @@ namespace cpod {
 
 namespace makexx {
 
+
+    // C++'s std::print will cause program size inflate
+    // This alternative is better.
     template <typename ... Args>
-    static inline void fprint(std::ostream& f, std::string_view fmt, Args&& ... args) {
+    inline void tiny_print(std::ostream& f, std::string_view fmt, Args&& ... args) {
         auto buf = std::vformat(fmt, std::make_format_args(args...));
         f.rdbuf()->sputn(buf.data(), buf.size());
     }
@@ -92,7 +93,6 @@ namespace makexx {
         void                   save_project_to_file(std::string_view root = "");
         void                   save_targets_to_files(std::string_view root = "");
 
-        std::vector<std::string>& configs() { return solution_configs_; }
     };
         
     class makefile_project {
@@ -128,9 +128,9 @@ R"(-----------------------------------------------------------------------------
         std::unordered_map<std::string_view, std::string> definition_map_;
 
         // Basic informations.
-        std::string                  mxx_project_name_;
-        std::vector<std::string>     mxx_project_targets_;
-        std::vector<std::string>     mxx_project_configurations_;
+        std::string                  mxx_project_name;
+        std::vector<std::string>     mxx_project_targets;
+        std::vector<std::string>     mxx_project_configurations;
 
         std::unordered_map<std::string, std::string> mxx_project_source_fields_;
 
