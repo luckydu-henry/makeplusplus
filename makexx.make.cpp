@@ -23,10 +23,10 @@ namespace makexx {
     // We use MXX_PROJECT_ROOT as root path, check makexx.generated.hpp for more details.
     // If you place your make.cpp in any folder besides parent folder, you must change MXX_PROJECT_ROOT manually.
     TARGET_SOURCES = {
-        "makexx.cpp", "makeplusplus.cpp", "tinyxml2/tinyxml2.cpp"
+        "makexx.cpp", "makeplusplus.cpp"
     };
     TARGET_HEADERS = {
-        "cpod.hpp", "tinyxml2/tinyxml2.h", "makeplusplus.hpp", "xmloxx.hpp"
+        "cpod.hpp", "makeplusplus.hpp", "xmloxx.hpp"
     };
     TARGET_TYPE                         = MXX_TARGET_TYPE_EXE;
 

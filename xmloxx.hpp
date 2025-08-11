@@ -54,7 +54,8 @@ namespace xmloxx {
         tree_node& operator=(tree_node&&) = default;
         ~tree_node() = default;
 
-        constexpr inline tree_node* parent() const { return parent_; }
+        constexpr inline const tree_node* parent() const { return parent_; }
+        constexpr inline       tree_node* parent()       { return parent_; }
 
         constexpr inline tree_node* push_attribute(std::string_view key, std::string_view val) {
             current_.attributes.emplace_back(key.data(), val.data());
@@ -122,12 +123,11 @@ namespace xmloxx {
                     return (fs & node_data::flag_begin_brace) ? std::format("{:s}<{:s}{:s}>{:s}\n", space, current_.name, attributes_to_string() , current_.content) :
                     std::format("{:s}</{:s}>\n", space, current_.name);
                 } 
-                return current_.content.empty() ? std::format("{:s}</{:s}{:s}>\n", space, current_.name, attributes_to_string()) :
+                return current_.content.empty() ? std::format("{:s}<{:s}{:s}/>\n", space, current_.name, attributes_to_string()) :
                 std::format("{0:s}<{1:s}{3:s}>{2:s}</{1:s}>\n", space, current_.name, current_.content, attributes_to_string());
             }
             return "";
         }
-        
     };
 
 
@@ -138,10 +138,14 @@ namespace xmloxx {
         using const_iterator = const tree_node*;
         using node_type      = tree_node;
         
-        tree(std::string_view root_name) : nodes_() {
-            nodes_.reserve(1 << 12);
+        tree(std::string_view root_name, std::size_t cap = 1 << 10) {
+            nodes_.reserve(cap);
             nodes_.emplace_back(root_name, nullptr);
         }
+        tree(const tree& right) = default;
+        tree(tree&& right) = default;
+        tree& operator=(const tree& right) = default;
+        tree& operator=(tree&& right) = default;
         ~tree() = default;
 
         // Begin is root.
@@ -164,6 +168,19 @@ namespace xmloxx {
                 return it.parent() == b;
             });
         }
+
+        constexpr inline iterator find_first_child_with_name(iterator b, std::string_view name) {
+            return std::ranges::find_if(*this, [b, name](const auto& it) {
+                return it.parent() == b && it.name() == name;
+            });
+        }
+
+        constexpr inline iterator find_first_child_with_attribute(iterator b, std::string_view key, std::string_view value) {
+            return std::ranges::find_if(*this, [b, key, value](auto& it) {
+                auto a = it.find_attribute(key);
+                return it.parent() == b && a != it.end_attribute() && a->key == key && a->value == value;
+            });
+        }
         
         constexpr inline iterator find_first_sibling(iterator b) {
             return std::find_if(b + 1, end(), [b](const auto& it) {
@@ -177,8 +194,20 @@ namespace xmloxx {
             });
         }
 
-        constexpr inline iterator find_nth_sibling(std::size_t n, iterator b) {
+        constexpr inline iterator find_first_sibling_with_attribute(iterator b, std::string_view key, std::string_view value) {
+            return std::find_if(b + 1, end(), [b, key, value](auto& it) {
+                auto a = it.find_attribute(key);
+                return b->parent() == it.parent() && a != it.end_attribute() && a->key == key && a->value == value;
+            });
+        }
+
+        constexpr inline iterator find_nth_sibling(iterator b, std::size_t n) {
             for (std::size_t i = 0; b != end() && i != n; b = find_first_sibling(b)) { ++i; }
+            return b;
+        }
+
+        constexpr inline iterator find_nth_sibling_with_name(iterator b, std::size_t n) {
+            for (std::size_t i = 0; b != end() && i != n; b = find_first_sibling_with_name(b)) { ++i; }
             return b;
         }
 
@@ -189,6 +218,11 @@ namespace xmloxx {
         }
 
         inline std::string to_string() const {
+            static constexpr std::string_view format_string = R"(<?xml version="1.0" encoding="utf-8"?>)""\n{:s}";
+            // A single root node doesn't require iterations.
+            if (depth() == 0) {
+                return std::format(format_string, begin()->to_string(0, node_data::flag_single_line));
+            } 
             std::unordered_map<const tree_node*, std::string>   node_string_map;
             node_string_map.reserve(nodes_.size());
             for (std::size_t i = depth(); i != 0; i--) {
@@ -210,8 +244,7 @@ namespace xmloxx {
                     }
                 }
             }
-            return std::format(R"(<?xml version="1.0" encoding="utf-8"?>)""\n{:s}",
-                node_string_map.empty() ? begin()->to_string(0, node_data::flag_single_line) : node_string_map[begin()]);
+            return std::format(format_string, node_string_map[begin()]);
         }
     };
 }

@@ -7,6 +7,9 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <format>
+#include <ostream>
+#include "xmloxx.hpp"
 
 namespace msvc_xml {
     class document;
@@ -34,13 +37,13 @@ namespace makexx {
     enum class target_msvc_subsystems   : std::uint32_t { console = 1, window };
     
     class visual_studio_project {
-        std::string                                                   solution_name_;
-        std::vector<std::string>                                      solution_configs_;
+        std::string                                             solution_name_;
+        std::vector<std::string>                                solution_configs_;
         // For visual studio project locate.
-        std::unordered_map<std::string_view, std::string>             vcxproj_guid_map_;
-        std::unordered_map<std::string_view, msvc_xml::document>   vcxproj_map_;
-        std::unordered_map<std::string_view, msvc_xml::document>   vcxproj_filters_map_;
-        std::unordered_map<std::string_view, std::string_view>        vcxproj_filter_name_map_;
+        std::unordered_map<std::string_view, std::string>       vcxproj_guid_map_;
+        std::unordered_map<std::string_view, xmloxx::tree>      vcxproj_map_;
+        std::unordered_map<std::string_view, xmloxx::tree>      vcxproj_filters_map_;
+        std::unordered_map<std::string_view, std::string_view>  vcxproj_filter_name_map_;
 
         enum AttachmentType {
             Attach_Headers        = 1,
@@ -50,9 +53,6 @@ namespace makexx {
             Attach_Dependency     = 5
         };
         
-        void target_attach_files_             (std::string_view target_name, const std::vector<std::string>& files, const std::string& filter_root, AttachmentType type);
-        void target_set_item_definition_group_(std::string_view target_name, std::string_view condition, std::string_view scope, std::string_view elem, std::string_view value);
-        void target_append_property_group_    (std::string_view target_name, std::string_view condition, std::string_view scope, std::string_view value);
     public:
         visual_studio_project(std::string_view sln_name, const std::vector<std::string>& configs);
         
@@ -70,7 +70,7 @@ namespace makexx {
         visual_studio_project& target_msvc_icon     (std::string_view target_name, std::string_view         resource);
         visual_studio_project& target_dependencies  (std::string_view target_name, const std::vector<std::string>& dependencies);
         
-        visual_studio_project& target_type                (std::string_view target_name, target_types          type);
+        visual_studio_project& target_type           (std::string_view target_name, target_types          type);
         visual_studio_project& target_std_cpp        (std::string_view target_name, target_cpp_standards  version);
         visual_studio_project& target_std_c          (std::string_view target_name, target_c_standards    version);
         
@@ -81,13 +81,12 @@ namespace makexx {
         visual_studio_project& target_external_links         (std::string_view target_name, const std::vector<std::string>& links, std::string_view config);
         visual_studio_project& target_binary_directory       (std::string_view target_name, std::string_view dir, std::string_view config);
         visual_studio_project& target_intermediate_directory (std::string_view target_name, std::string_view dir, std::string_view config);
-        
+        //
         visual_studio_project& target_external_link_directories    (std::string_view target_name, const std::vector<std::string>& dirs);
         visual_studio_project& target_external_include_directories (std::string_view target_name, const std::vector<std::string>& dirs);
 
         void                   save_project_to_file(std::string_view root = "");
         void                   save_targets_to_files(std::string_view root = "");
-
     };
         
     class makefile_project {
@@ -128,10 +127,6 @@ R"(-----------------------------------------------------------------------------
         std::vector<std::string>     mxx_project_configurations;
 
         std::unordered_map<std::string, std::string> mxx_project_source_fields_;
-
-        std::string                   fix_path_(std::string_view path);
-        std::vector<std::string>      fix_paths_(std::vector<std::string>& paths);
-
 
         void generate_header_();
         void generate_project_();

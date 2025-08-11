@@ -6,7 +6,6 @@
 #include <filesystem>
 #include <cstdlib>
 
-#include "tinyxml2/tinyxml2.h"
 #include "cpod.hpp"
 #include "makeplusplus.hpp"
 
@@ -162,26 +161,13 @@ namespace makexx {
             result.pop_back();
             return result;
         }
-        
-        static msvc_xml::element* xml_find_child_with_index(std::string_view name, msvc_xml::element* root, std::size_t n = 0) {
-            msvc_xml::element* element = root->begin_child_elem(name.data());
-            for (std::size_t i = 0; i != n; ++i) {
-                element = element->next_sibling_elem(name.data());
-            }
-            return element;
-        }
 
-        static void                  xml_save_map_to_file(std::unordered_map<std::string_view, msvc_xml::document>& map, std::string_view ext, std::string_view rootdir = "") {
-            for (auto& [target_name, doc] : map) {
-                std::filesystem::path path = (std::filesystem::path(rootdir) / (std::string(target_name) + std::string(ext))).lexically_normal();
-                doc.SaveFile(path.generic_string().c_str());
+        static void                  xml_save_map_to_file(std::unordered_map<std::string_view, xmloxx::tree>& map, std::string_view ext, std::string_view rootdir = "") {
+            for (auto& [target_name, tree] : map) {
+                std::ofstream map_file((std::filesystem::path(rootdir) / (std::string(target_name) + std::string(ext))).lexically_normal());
+                auto s = tree.to_string();
+                map_file.rdbuf()->sputn(s.data(), s.size());
             }
-        }
-
-        static msvc_xml::element* xml_find_child_with_attribute(std::string_view name, msvc_xml::element* root, std::string_view attrib, std::string_view value) {
-            root = root->begin_child_elem(name.data());
-            for (; value != root->get_attrib(attrib.data()); root = root->next_sibling_elem(name.data())) {}
-            return root;
         }
         
         static std::string generate_guid() {
@@ -217,10 +203,10 @@ namespace makexx {
             return optimizations[static_cast<std::uint32_t>(op)];
         }
 
-        static msvc_xml::element* find_item_definition_group_element(msvc_xml::document& doc, std::string_view condition, std::string_view subrange) {
-            return xml_find_child_with_attribute("ItemDefinitionGroup",
-                doc.root_elem(),
-                "Condition", condition)->begin_child_elem(subrange.data());
+        static xmloxx::tree::iterator find_item_definition_group_element(xmloxx::tree& tree, std::string_view condition, std::string_view subrange) {
+            return tree.find_first_child_with_name(
+                tree.find_first_sibling_with_attribute(
+                tree.find_nth_sibling(tree.begin() + 1, 12), "Condition", condition), subrange);
         }
         
         static auto  extract_config(std::string_view config) {
@@ -234,8 +220,6 @@ namespace makexx {
 
         static void  generate_resource(std::string_view target_name, std::string_view iconname) {
             std::ofstream rc(std::string(target_name) + ".rc"), header(std::string(target_name) + ".resource.h");
-
-            
             tiny_print(rc, R"(//
 // Microsoft Visual C++ generated resource script.
 //
@@ -322,230 +306,235 @@ IDI_ICON1               ICON                    "{1:s}"
     //     Header and Sources only have little differences.    //
     /////////////////////////////////////////////////////////////
     
-    void visual_studio_project::target_attach_files_(std::string_view target_name, const std::vector<std::string>& files,
-                                                     const std::string& filter_root, AttachmentType type) {
-        static const char* itemStrings[] = { "", "ClInclude", "ClCompile", "Image", "ResourceCompile" };
+    static void target_attach_files_(xmloxx::tree& tree_filter, xmloxx::tree& tree_proj,
+        const std::vector<std::string>& files, const std::string& filter_root, int type) {
         
+        static const char* item_strings[] = { "", "ClInclude", "ClCompile", "Image", "ResourceCompile" };
         // Add filter to list.
-        msvc_xml::document& docfilt = vcxproj_filters_map_[target_name];
-        msvc_xml::element*  itemGroupFileFilter = msvc_details::xml_find_child_with_index("ItemGroup", docfilt.root_elem(), type);
-
+        auto  item_group_file_filter = tree_filter.find_nth_sibling_with_name(tree_filter.begin() + 2, type); // The second child is the first item group.
+        
         std::string absrt =  std::filesystem::absolute(std::filesystem::path(filter_root).lexically_normal()).generic_string();
-        
-        for (auto& path : files) {
+
 #define GET_ABS_PATH(abspath)\
-        auto abspath = std::filesystem::absolute(std::filesystem::path(path).lexically_normal()).remove_filename().generic_string();\
-        abspath.erase(0, absrt.size());\
-        abspath = msvc_details::get_filter_path(abspath);\
-        if (!abspath.empty() && abspath.back() == '\\') { abspath.pop_back(); }
-            
+auto abspath = std::filesystem::absolute(std::filesystem::path(path).lexically_normal()).remove_filename().generic_string();\
+abspath.erase(0, absrt.size());\
+abspath = msvc_details::get_filter_path(abspath);\
+if (!abspath.empty() && abspath.back() == '\\') { abspath.pop_back(); }
+        
+        for (auto& path : files) {
             GET_ABS_PATH(abspath)
             if (!abspath.empty()) {
-                vcxproj_filter_name_map_[abspath] = abspath;
-                msvc_details::xml_find_child_with_index("ItemGroup", docfilt.root_elem())
-                ->insert_child_elem("Filter")->set_attrib("Include", abspath.data())
-                ->insert_child_elem("UniqueIdentifier")->set_txt(msvc_details::generate_guid().c_str());
+                // vcxproj_filter_name_map_[abspath] = abspath;
+                tree_filter.push_node("UniqueIdentifier",
+                    tree_filter.push_node("Filter",tree_filter.begin() + 2)->push_attribute("Include", abspath))->text(msvc_details::generate_guid());
             }
         }
         
-        msvc_xml::document& docproj = vcxproj_map_[target_name];
-        msvc_xml::element*  itemGroupFiles = msvc_details::xml_find_child_with_index("ItemGroup", docproj.root_elem(), type);
-
         for (auto& path : files) {
-            itemGroupFiles->insert_child_elem(itemStrings[type])->set_attrib("Include", path.c_str());
+            tree_proj.push_node(item_strings[type], tree_proj.find_nth_sibling_with_name(tree_proj.begin() + 1, type))->push_attribute("Include", path);
+        
+            auto cl_item = tree_filter.push_node(item_strings[type], item_group_file_filter);
+            cl_item->push_attribute("Include", path);
             
-            msvc_xml::element* fclItem = itemGroupFileFilter->insert_child_elem(itemStrings[type]);
-            fclItem->set_attrib("Include", path.c_str());
-
             GET_ABS_PATH(abspath)
             if (!abspath.empty()) {
-                fclItem->insert_child_elem("Filter")->set_txt(abspath.data());
+                tree_filter.push_node("Filter", cl_item)->text(abspath);
             }
         }
     }
 
-    void visual_studio_project::target_set_item_definition_group_(std::string_view target_name, std::string_view config,
-        std::string_view scope, std::string_view elem, std::string_view value) {
+    static void target_set_item_definition_group_(xmloxx::tree& tree, std::string_view config, std::string_view scope, std::string_view elem, std::string_view value) {
         auto [mode, plat, tag, comb] = msvc_details::extract_config(config);
-        msvc_details::find_item_definition_group_element(vcxproj_map_[target_name], comb,
-    scope.data())->insert_child_elem(elem.data())->set_txt(value.data());
+        tree.push_node(elem, msvc_details::find_item_definition_group_element(tree, comb, scope))->text(value);
     }
 
-    void visual_studio_project::target_append_property_group_(std::string_view target_name, std::string_view condition,
-        std::string_view scope, std::string_view value) {
+    static void target_append_property_group_(xmloxx::tree& tree, std::string_view condition, std::string_view scope, std::string_view value) {
         auto [mode, plat, tag, comb] = msvc_details::extract_config(condition);
-        auto prop = msvc_details::xml_find_child_with_attribute("PropertyGroup", vcxproj_map_[target_name].root_elem(), "Label", "UserMacros")
-        ->next_sibling_elem("PropertyGroup");
-        for (;comb != prop->get_attrib("Condition"); prop = prop->next_sibling_elem("PropertyGroup")) {}
-        prop->insert_child_elem(scope.data())->set_txt(value.data());
+        tree.push_node(scope,
+            tree.find_first_sibling_with_attribute(
+                tree.find_nth_sibling(tree.begin() + 1, 10), "Condition", comb))->text(value);
     }
-
 
     visual_studio_project::visual_studio_project(std::string_view sln_name, const std::vector<std::string>& configs)
-    : solution_name_(sln_name), solution_configs_(configs) {
-        
-    }
+    : solution_name_(sln_name), solution_configs_(configs) {}
 
     visual_studio_project& visual_studio_project::new_target(std::string_view target_name) {
-
         ////////////////////////////////////////////
         //                Filters                ///
         ////////////////////////////////////////////
-        msvc_xml::document& docfilt = vcxproj_filters_map_[target_name];
-        docfilt.insert_child_end(docfilt.make_decl("xml version=\"1.0\" encoding=\"utf-8\""));
-        docfilt.insert_child_end(docfilt.make_comm("Project generated by makeplusplus"));
+
+        auto& tree_filter = vcxproj_filters_map_.try_emplace(target_name, "Project", 1 << 15).first->second;
         
         // Insert filter root project.
-        msvc_xml::element* filter = docfilt.make_elem("Project");
-        filter->set_attrib("ToolsVersion", "4.0")->set_attrib("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
-        docfilt.insert_child_end(filter);
+        tree_filter.begin()->push_attribute("ToolsVersion", "4.0")->push_attribute("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
 
-        filter->insert_comm("Global   filter defines")->parent_elem()->insert_child_elem("ItemGroup");
-        filter->insert_comm("Header   filter defines")->parent_elem()->insert_child_elem("ItemGroup");
-        filter->insert_comm("Source   filter defines")->parent_elem()->insert_child_elem("ItemGroup");
-        filter->insert_comm("Icon     filter defines")->parent_elem()->insert_child_elem("ItemGroup");
-        filter->insert_comm("Resource filter defines")->parent_elem()->insert_child_elem("ItemGroup");
+        tree_filter.push_node("Global", xmloxx::node_data::flag_comment);
+        tree_filter.push_node("ItemGroup");
+
+        tree_filter.push_node("Header", xmloxx::node_data::flag_comment);
+        tree_filter.push_node("ItemGroup");
+
+        tree_filter.push_node("Source", xmloxx::node_data::flag_comment);
+        tree_filter.push_node("ItemGroup");
+
+        tree_filter.push_node("Icon", xmloxx::node_data::flag_comment);
+        tree_filter.push_node("ItemGroup");
+
+        tree_filter.push_node("Resource", xmloxx::node_data::flag_comment);
+        tree_filter.push_node("ItemGroup");
         
         ////////////////////////////////////////////
         //                Project                ///
         ////////////////////////////////////////////
         vcxproj_guid_map_[target_name] = msvc_details::generate_guid();
-        msvc_xml::document& docproj = vcxproj_map_[target_name];
-
-        docproj.insert_child_end(docproj.make_decl("xml version=\"1.0\" encoding=\"utf-8\""));
-        docproj.insert_child_end(docproj.make_comm("Project generated by makeplusplus"));
-
-        // Insert project root declarations.
-        msvc_xml::element* project = docproj.make_elem("Project");
-        project->set_attrib("DefaultTargets", "Build")->set_attrib("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
-        docproj.insert_child_end(project);
+        auto& tree_proj = vcxproj_map_.try_emplace(target_name, "Project", 1 << 15).first->second;
+        
+        tree_proj.begin()->push_attribute("DefaultTargets", "Build")->push_attribute("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
 
         // Insert ItemGroup project configurations
-        msvc_xml::element* itemGroupConfig = project->insert_child_elem("ItemGroup")->set_attrib("Label", "ProjectConfigurations");
+        auto item_group_project_config = tree_proj.push_node("ItemGroup")->push_attribute("Label", "ProjectConfigurations");
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
-            itemGroupConfig->insert_child_elem("ProjectConfiguration")->set_attrib("Include", tag.c_str())
-            ->insert_child_elem("Configuration")->set_txt(mode.c_str()) ->parent_elem()
-            ->insert_child_elem("Platform")     ->set_txt(plat.c_str()) ->parent_elem();
+            auto project_config = tree_proj.push_node("ProjectConfiguration", item_group_project_config)->push_attribute("Include", tag);
+            tree_proj.push_node("Configuration", project_config)->text(mode);
+            tree_proj.push_node("Platform"     , project_config)->text(plat);
         }
-
+        
         // Insert global configurations
-        project->insert_child_elem("PropertyGroup")->set_attrib("Label", "Globals")
-        ->insert_child_elem("ProjectGuid")                  ->set_txt(vcxproj_guid_map_[target_name].c_str()) ->parent_elem()
-        ->insert_child_elem("RootNamespace")                ->set_txt(target_name.data())                     ->parent_elem()
-        ->insert_child_elem("ProjectName")                  ->set_txt(target_name.data())                     ->parent_elem()
-        ->insert_child_elem("WindowsTargetPlatformVersion") ->set_txt("10.0");
+        auto property_group_globals = tree_proj.push_node("PropertyGroup")->push_attribute("Label", "Globals");
+        tree_proj.push_node("ProjectGuid"  , property_group_globals)->text(vcxproj_guid_map_[target_name]);
+        tree_proj.push_node("RootNamespace", property_group_globals)->text(target_name);
+        tree_proj.push_node("ProjectName"  , property_group_globals)->text(target_name);
+        tree_proj.push_node("WindowsTargetPlatformVersion", property_group_globals)->text("10.0");
+        
         
         // Import compile properties
-        project->insert_child_elem("Import")->set_attrib("Project", "$(VCTargetsPath)\\Microsoft.Cpp.Default.props");
-
+        tree_proj.push_node("Import")->push_attribute("Project", "$(VCTargetsPath)\\Microsoft.Cpp.Default.props");
+        
         // Insert configuration.
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
             std::string mode_upper_norm = msvc_details::normalize_to_uppercase_mode(mode);
-            
-            project->insert_child_elem("PropertyGroup")
-            ->set_attrib("Condition", comb.c_str())->set_attrib("Label", "Configuration")
-            ->insert_child_elem("ConfigurationType") ->set_txt("")            ->parent_elem()
-            ->insert_child_elem("PlatformToolset")   ->set_txt("v143")        ->parent_elem()
-            ->insert_child_elem("CharacterSet")      ->set_txt("Unicode")     ->parent_elem()
-            ->insert_child_elem("UseDebugLibraries") ->set_txt(mode_upper_norm == "DEBUG" ? "true" : "false");
-        }
-        project->insert_child_elem("Import")->set_attrib("Project", "$(VCTargetsPath)\\Microsoft.Cpp.props");
-
-        // Import extension property list.
-        project->insert_child_elem("ImportGroup")->set_attrib("Label", "ExtensionSettings");
-        project->insert_child_elem("ImportGroup")->set_attrib("Label", "Shared");
-
-        // Use for loop to set all config releated properties.
-        for (std::string_view config : solution_configs_) {
-            auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
-            project->insert_child_elem("ImportGroup")
-            ->set_attrib("Label", "PropertySheets")->set_attrib("Condition", comb.c_str())
-            ->insert_child_elem("Import")
-            ->set_attrib("Project", "$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props")
-            ->set_attrib("Condition", "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')")
-            ->set_attrib("Label", "LocalAppDataPlatform");
-        }
-
-        project->insert_child_elem("PropertyGroup")->set_attrib("Label", "UserMacros");
         
+            auto project_group_cond_config = tree_proj.push_node("PropertyGroup")
+            ->push_attribute("Condition", comb)->push_attribute("Label", "Configuration");
+        
+            tree_proj.push_node("ConfigurationType", project_group_cond_config)->text("Application");
+            tree_proj.push_node("PlatformToolset",   project_group_cond_config)->text("v143");
+            tree_proj.push_node("CharacterSet",      project_group_cond_config)->text("Unicode");
+            tree_proj.push_node("UseDebugLibraries", project_group_cond_config)->text(mode_upper_norm == "DEBUG" ? "true" : "false");
+        }
+        tree_proj.push_node("Import")->push_attribute("Project", "$(VCTargetsPath)\\Microsoft.Cpp.props");
+        
+        // Import extension property list.
+        tree_proj.push_node("ImportGroup")->push_attribute("Label", "ExtensionSettings");
+        tree_proj.push_node("ImportGroup")->push_attribute("Label", "Shared");
+        
+        // Use for loop to set all config related properties.
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
-            project->insert_child_elem("PropertyGroup")->set_attrib("Condition", comb.c_str());
+            
+            auto import_group_property_sheets_config = tree_proj.push_node("ImportGroup")
+            ->push_attribute("Label", "PropertySheets")->push_attribute("Condition", comb);
+        
+            tree_proj.push_node("Import", import_group_property_sheets_config)
+            ->push_attribute("Project", "$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props")
+            ->push_attribute("Condition", "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')")
+            ->push_attribute("Label", "LocalAppDataPlatform");
+        }
+        
+        tree_proj.push_node("PropertyGroup")->push_attribute("Label", "UserMacros");
+        
+        // For OutDir and IntDir.
+        for (std::string_view config : solution_configs_) {
+            auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
+            tree_proj.push_node("PropertyGroup")->push_attribute("Condition", comb);
         }
         
         // Insert item definitions.
         for (std::string_view config : solution_configs_) {
             auto[mode, plat, tag, comb] = msvc_details::extract_config(config);
-
             std::string mode_upper_norm = msvc_details::normalize_to_uppercase_mode(mode);
+            auto  idg = tree_proj.push_node("ItemDefinitionGroup")->push_attribute("Condition", comb);
             
-            auto* idg = project->insert_child_elem("ItemDefinitionGroup")->set_attrib("Condition", comb.c_str());
+            auto  com = tree_proj.push_node("ClCompile", idg);
+            tree_proj.push_node("WarningLevel",    com)->text("Level3");
+            tree_proj.push_node("SDLCheck",        com)->text("true");
+            tree_proj.push_node("ConformanceMode", com)->text("true");
+        
+            auto  lnk = tree_proj.push_node("Link", idg);
+            tree_proj.push_node("GenerateDebugInformation", lnk)->text("true");
             
-            auto* com = idg->insert_child_elem("ClCompile");
-                  com->insert_child_elem("WarningLevel")        ->set_txt("Level3")  ->parent_elem()
-                     ->insert_child_elem("SDLCheck")            ->set_txt("true")    ->parent_elem()
-                     ->insert_child_elem("ConformanceMode")     ->set_txt("true")    ->parent_elem();
-            auto* lnk = idg->insert_child_elem("Link");
-                  lnk->insert_child_elem("GenerateDebugInformation")  ->set_txt("true")    ->parent_elem();
             // Release specific defines
             if (mode_upper_norm != "DEBUG") {
-                com->insert_child_elem("FunctionLevelLinking")->set_txt("true")    ->parent_elem()
-                   ->insert_child_elem("IntrinsicFunctions")  ->set_txt("true")    ->parent_elem();
-                lnk->insert_child_elem("EnableCOMDATFolding") ->set_txt("true")    ->parent_elem()
-                   ->insert_child_elem("OptimizeReferences")  ->set_txt("true")    ->parent_elem();
+                tree_proj.push_node("FunctionLevelLinking", com)->text("true");
+                tree_proj.push_node("IntrinsicFunctions",   com)->text("true");
+                tree_proj.push_node("EnableCOMDATFolding", lnk)->text("true");
+                tree_proj.push_node("OptimizeReferences",  lnk)->text("true");
             }
         }
-
-        // include item group sequence 'project configuration''include' 'compile' 'icon' ‘resource’ 'dependencies' 
-        project->insert_comm("Include items")   ->parent_elem()->insert_child_elem("ItemGroup");
-        project->insert_comm("Source items")    ->parent_elem()->insert_child_elem("ItemGroup");
-        project->insert_child_elem("Import")     ->set_attrib("Project", "$(VCTargetsPath)\\Microsoft.Cpp.targets");
-        project->insert_child_elem("ImportGroup")->set_attrib("Label", "ExtensionTargets");
-        project->insert_comm("Icon Item")       ->parent_elem()->insert_child_elem("ItemGroup");
-        project->insert_comm("Resource Item")   ->parent_elem()->insert_child_elem("ItemGroup");
-        project->insert_comm("Dependency items")->parent_elem()->insert_child_elem("ItemGroup");
+        
+        // include item group sequence 'project configuration''include' 'compile' 'icon' ‘resource’ 'dependencies'
+        tree_proj.push_node("Include items", xmloxx::node_data::flag_comment);
+        tree_proj.push_node("ItemGroup");
+        
+        tree_proj.push_node("Source items", xmloxx::node_data::flag_comment);
+        tree_proj.push_node("ItemGroup");
+        
+        tree_proj.push_node("Import")      ->push_attribute("Project", "$(VCTargetsPath)\\Microsoft.Cpp.targets");
+        tree_proj.push_node("ImportGroup") ->push_attribute("Label", "ExtensionTargets");
+        
+        tree_proj.push_node("Icon Item", xmloxx::node_data::flag_comment);
+        tree_proj.push_node("ItemGroup");
+        
+        tree_proj.push_node("Resource Item", xmloxx::node_data::flag_comment);
+        tree_proj.push_node("ItemGroup");
+        
+        tree_proj.push_node("Dependency Item", xmloxx::node_data::flag_comment);
+        tree_proj.push_node("ItemGroup");
         
         return *this;
     }
 
     visual_studio_project& visual_studio_project::target_headers(std::string_view target_name,
         const std::vector<std::string>& headers, const std::string& filter) {
-        target_attach_files_(target_name, headers, filter, Attach_Headers);
+        target_attach_files_(vcxproj_filters_map_.at(target_name), vcxproj_map_.at(target_name), headers, filter, Attach_Headers);
         return *this;        
     }
-
+    
     visual_studio_project& visual_studio_project::target_sources(std::string_view target_name,
         const std::vector<std::string>& sources, const std::string& filter) {
-        target_attach_files_(target_name, sources, filter, Attach_Sources);
+        target_attach_files_(vcxproj_filters_map_.at(target_name), vcxproj_map_.at(target_name), sources, filter, Attach_Sources);
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_msvc_icon(std::string_view target_name, std::string_view resource) {
         msvc_details::generate_resource(target_name, resource);
-        target_attach_files_(target_name, {std::filesystem::absolute(resource).generic_string()}, "./", Attach_Icon);
-        target_attach_files_(target_name, {std::filesystem::absolute(std::string(target_name) + ".rc").generic_string()}, "./", Attach_Resource);
+        target_attach_files_(vcxproj_filters_map_.at(target_name), vcxproj_map_.at(target_name),
+            {std::filesystem::absolute(resource).generic_string()}, "./", Attach_Icon);
+        target_attach_files_(vcxproj_filters_map_.at(target_name), vcxproj_map_.at(target_name),
+            {std::filesystem::absolute(std::string(target_name) + ".rc").generic_string()}, "./", Attach_Resource);
         return *this;
     }
 
-    visual_studio_project& visual_studio_project::target_dependencies(std::string_view target_name,
-        const std::vector<std::string>& dependencies) {
-        msvc_xml::document& docproj   = vcxproj_map_[target_name];
-        msvc_xml::element*  itemGroup = msvc_details::xml_find_child_with_index("ItemGroup", docproj.root_elem(), Attach_Dependency);
+    visual_studio_project& visual_studio_project::target_dependencies(std::string_view target_name, const std::vector<std::string>& dependencies) {
+        auto& tree_proj    = vcxproj_map_.at(target_name);
+        auto  item_group   = tree_proj.find_nth_sibling_with_name(tree_proj.begin() + 1, Attach_Dependency);
         for (std::string_view dependency : dependencies) {
-            itemGroup->insert_child_elem("ProjectReference")->set_attrib("Include",  (std::string(dependency) + ".vcxproj").c_str())
-            ->insert_child_elem("Project")->set_txt(vcxproj_guid_map_[dependency].c_str());
+            tree_proj.push_node("Project",
+                tree_proj.push_node("ProjectReference", item_group)->push_attribute("Include",  (std::string(dependency) + ".vcxproj")))
+            ->text(vcxproj_guid_map_[dependency]);
         }
         return *this;
     }
-
+    
+    
     visual_studio_project& visual_studio_project::target_type(std::string_view target_name, target_types type) {
-        msvc_xml::document& docproj   = vcxproj_map_[target_name];
-        msvc_xml::element*  propgroup = msvc_details::xml_find_child_with_index("PropertyGroup", docproj.root_elem(), 1);
+        auto& tree_proj       = vcxproj_map_.at(target_name);
+        auto  property_group  = tree_proj.find_nth_sibling(tree_proj.begin() + 1, 3);
         for (auto& config : solution_configs_) {
-            propgroup->begin_child_elem("ConfigurationType")->set_txt(msvc_details::get_project_type_string(type));
-            propgroup = propgroup->next_sibling_elem("PropertyGroup");
+            tree_proj.find_first_child(property_group)->text(msvc_details::get_project_type_string(type));
+            property_group = tree_proj.find_first_sibling(property_group);
         }
         return *this;
     }
@@ -553,49 +542,49 @@ IDI_ICON1               ICON                    "{1:s}"
     visual_studio_project& visual_studio_project::target_std_cpp(std::string_view target_name,
         target_cpp_standards  version) {
         for (auto& config : solution_configs_) {
-            target_set_item_definition_group_(target_name, config,
+            target_set_item_definition_group_(vcxproj_map_.at(target_name), config,
                 "ClCompile", "LanguageStandard", msvc_details::get_cpp_standard_string(version));
         }
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_std_c(std::string_view target_name,
         target_c_standards version) {
         for (auto& config : solution_configs_) {
-            target_set_item_definition_group_(target_name, config,
+            target_set_item_definition_group_(vcxproj_map_.at(target_name), config,
                 "ClCompile", "LanguageStandard_C", msvc_details::get_c_standard_string(version));
         }
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_msvc_subsystem(std::string_view target_name,
         target_msvc_subsystems sys) {
         for (auto& config : solution_configs_) {
-            target_set_item_definition_group_(target_name, config,
+            target_set_item_definition_group_(vcxproj_map_.at(target_name), config,
                 "Link", "SubSystem", msvc_details::get_subsystem_string(sys));
         }
         return *this;
     }
-
+    
+    
     visual_studio_project& visual_studio_project::target_optimization(std::string_view target_name, target_optimizations op, std::string_view config) {
-        target_set_item_definition_group_(target_name, config,
-    "ClCompile", "Optimization", msvc_details::get_optimization_string(op));
+        target_set_item_definition_group_(vcxproj_map_.at(target_name), config, "ClCompile", "Optimization", msvc_details::get_optimization_string(op));
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_defines(std::string_view target_name, const std::vector<std::string>& defines, std::string_view config) {
         auto nmode = msvc_details::normalize_to_uppercase_mode(std::get<0>(msvc_details::extract_config(config)));
         std::string_view mac = nmode == "DEBUG" ? "_DEBUG" : "NDEBUG";
-        target_set_item_definition_group_(target_name, config,
+        target_set_item_definition_group_(vcxproj_map_.at(target_name), config,
             "ClCompile", "PreprocessorDefinitions", std::format("{:s};{:s};%(PreprocessorDefinitions)",
                 msvc_details::convert_list_to_string(defines, "", [](const std::string& i) { return i; }), mac));
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_external_link_directories(std::string_view target_name,
         const std::vector<std::string>& dirs) {
         for (auto& config : solution_configs_) {
-            target_set_item_definition_group_(target_name, config,
+            target_set_item_definition_group_(vcxproj_map_.at(target_name), config,
         "Link", "AdditionalLibraryDirectories",
         msvc_details::convert_list_to_string(dirs, "", [](const std::string& i) {
                      return std::filesystem::path(i).lexically_normal().generic_string();
@@ -603,11 +592,11 @@ IDI_ICON1               ICON                    "{1:s}"
         }
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_external_include_directories(std::string_view target_name,
         const std::vector<std::string>& dirs) {
         for (auto& config : solution_configs_) {
-            target_set_item_definition_group_(target_name, config,
+            target_set_item_definition_group_(vcxproj_map_.at(target_name), config,
         "ClCompile", "AdditionalIncludeDirectories",
         msvc_details::convert_list_to_string(dirs, "", [](const std::string& i) {
                      return std::filesystem::path(i).lexically_normal().generic_string();
@@ -615,22 +604,22 @@ IDI_ICON1               ICON                    "{1:s}"
         }
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_external_links(std::string_view target_name, const std::vector<std::string>& links, std::string_view config) {
-        target_set_item_definition_group_(target_name, config,
+        target_set_item_definition_group_(vcxproj_map_.at(target_name), config,
             "Link", "AdditionalDependencies",
             std::format("{:s};%(AdditionalDependencies)", msvc_details::convert_list_to_string(links, ".lib",
                  [](const std::string& i) { return i; })));
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_binary_directory(std::string_view target_name, std::string_view dir, std::string_view config) {
-        target_append_property_group_(target_name, config, "OutDir", dir);
+        target_append_property_group_(vcxproj_map_.at(target_name), config, "OutDir", dir);
         return *this;
     }
-
+    
     visual_studio_project& visual_studio_project::target_intermediate_directory(std::string_view target_name, std::string_view dir, std::string_view config) {
-        target_append_property_group_(target_name, config, "IntDir", dir);
+        target_append_property_group_(vcxproj_map_.at(target_name), config, "IntDir", dir);
         return *this;
     }
 
@@ -841,15 +830,15 @@ if (auto it = current_archive.find_variable_begin<decltype(fn)>(###fn); it != cu
     //            Also belongs to generator                   //
     ////////////////////////////////////////////////////////////
     
-    std::string make_application::fix_path_(std::string_view path) {
-        std::string root = definition_map_["MXX_PROJECT_ROOT"];
+    static std::string fix_path_(std::string_view path, const std::string& ir) {
+        std::string root = ir;
         std::erase(root, '\"');
         return (std::filesystem::path(root) / path).lexically_normal().generic_string();
     }
 
-    std::vector<std::string> make_application::fix_paths_(std::vector<std::string>& paths) {
+    std::vector<std::string> fix_paths_(std::vector<std::string>& paths, const std::string& ir) {
         for (auto& path : paths) {
-            path = fix_path_(path);
+            path = fix_path_(path, ir);
         }
         return generator_details::unwrap_shrunk_paths(paths);
     }
@@ -863,6 +852,13 @@ if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn)
     cpod::serializer<decltype(mxx_##fn)>{}(it, mxx_##fn, 0); \
     auto hd_var = hd(mxx_##fn);                          \
     vssln.fn(target, hd_var,__VA_ARGS__);           \
+}} while (false)
+
+#define FIND_AND_SET_PROPERTY_EX(fn, hd, q, ...) do { \
+if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn); it != current_archive.content_end()) {\
+cpod::serializer<decltype(mxx_##fn)>{}(it, mxx_##fn, 0); \
+auto hd_var = hd(mxx_##fn, q);                          \
+vssln.fn(target, hd_var,__VA_ARGS__);           \
 }} while (false)
         
         std::string      splited_source;
@@ -887,18 +883,18 @@ if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn)
                     std::uint32_t            mxx_target_std_c;
                     std::uint32_t            mxx_target_msvc_subsystem;
 
-                    auto filter_root = fix_path_("");
+                    auto filter_root = fix_path_("", definition_map_["MXX_PROJECT_ROOT"]);
                     
-                    FIND_AND_SET_PROPERTY(target_sources,                        fix_paths_, filter_root);
-                    FIND_AND_SET_PROPERTY(target_headers,                        fix_paths_, filter_root);
-                    FIND_AND_SET_PROPERTY(target_msvc_icon,                      fix_path_);
-                    FIND_AND_SET_PROPERTY(target_dependencies,                   generator_details::no_operation);
-                    FIND_AND_SET_PROPERTY(target_type,                           generator_details::enum_convert<target_types>);
-                    FIND_AND_SET_PROPERTY(target_std_cpp,                        generator_details::enum_convert<target_cpp_standards>);
-                    FIND_AND_SET_PROPERTY(target_std_c,                          generator_details::enum_convert<target_c_standards>);
-                    FIND_AND_SET_PROPERTY(target_msvc_subsystem,                 generator_details::enum_convert<target_msvc_subsystems>);
-                    FIND_AND_SET_PROPERTY(target_external_link_directories,      fix_paths_);
-                    FIND_AND_SET_PROPERTY(target_external_include_directories,   fix_paths_);
+                    FIND_AND_SET_PROPERTY_EX(target_sources,                        fix_paths_, definition_map_["MXX_PROJECT_ROOT"], filter_root);
+                    FIND_AND_SET_PROPERTY_EX(target_headers,                        fix_paths_, definition_map_["MXX_PROJECT_ROOT"], filter_root);
+                    FIND_AND_SET_PROPERTY_EX(target_msvc_icon,                      fix_path_ , definition_map_["MXX_PROJECT_ROOT"]);
+                    FIND_AND_SET_PROPERTY   (target_dependencies,                   generator_details::no_operation);
+                    FIND_AND_SET_PROPERTY   (target_type,                           generator_details::enum_convert<target_types>);
+                    FIND_AND_SET_PROPERTY   (target_std_cpp,                        generator_details::enum_convert<target_cpp_standards>);
+                    FIND_AND_SET_PROPERTY   (target_std_c,                          generator_details::enum_convert<target_c_standards>);
+                    FIND_AND_SET_PROPERTY   (target_msvc_subsystem,                 generator_details::enum_convert<target_msvc_subsystems>);
+                    FIND_AND_SET_PROPERTY_EX(target_external_link_directories,      fix_paths_, definition_map_["MXX_PROJECT_ROOT"]);
+                    FIND_AND_SET_PROPERTY_EX(target_external_include_directories,   fix_paths_, definition_map_["MXX_PROJECT_ROOT"]);
                     ++config_count;
                 }
                 else {
@@ -916,8 +912,8 @@ if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn)
                     FIND_AND_SET_PROPERTY(target_optimization,            generator_details::enum_convert<target_optimizations>, current_config);
                     FIND_AND_SET_PROPERTY(target_defines,                 generator_details::no_operation,                       current_config);
                     FIND_AND_SET_PROPERTY(target_external_links,          generator_details::no_operation,                       current_config);
-                    FIND_AND_SET_PROPERTY(target_intermediate_directory,  fix_path_,                          current_config);
-                    FIND_AND_SET_PROPERTY(target_binary_directory,        fix_path_,                          current_config);
+                    FIND_AND_SET_PROPERTY_EX(target_intermediate_directory,  fix_path_, definition_map_["MXX_PROJECT_ROOT"],     current_config);
+                    FIND_AND_SET_PROPERTY_EX(target_binary_directory,        fix_path_, definition_map_["MXX_PROJECT_ROOT"],     current_config);
                     ++config_count;
                 }
                 splited_source.clear();
@@ -938,7 +934,7 @@ if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn)
         "Generating project using \"Visual Studio Generator\"!\n", argv_[2]);
         
         visual_studio_project vssln(mxx_project_name, mxx_project_configurations);
-
+    
         for (auto& target : mxx_project_targets) {
             vssln.new_target(target);
         }
@@ -948,11 +944,11 @@ if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn)
             read_target_and_generate_vs_project_(target, source, vssln);
             tiny_print(std::cout, "VC++ Project {:s} generated!\n", target);
         }
-
+    
         std::filesystem::create_directory(mxx_project_name);
         vssln.save_targets_to_files(mxx_project_name);
         vssln.save_project_to_file(mxx_project_name);
-
+    
         tiny_print(std::cout, "Visual Studio Solution {:s} generated!\n"
             "----------------------------------------------------------------------------------------------\n",mxx_project_name);
     }
