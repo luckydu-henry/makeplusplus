@@ -26,7 +26,7 @@ namespace makexx {
         "makexx.cpp", "makeplusplus.cpp", "tinyxml2/tinyxml2.cpp"
     };
     TARGET_HEADERS = {
-        "cpod.hpp", "tinyxml2/tinyxml2.h", "makeplusplus.hpp"
+        "cpod.hpp", "tinyxml2/tinyxml2.h", "makeplusplus.hpp", "xmloxx.hpp"
     };
     TARGET_TYPE                         = MXX_TARGET_TYPE_EXE;
 

@@ -19,7 +19,6 @@ namespace cpod {
 
 namespace makexx {
 
-
     // C++'s std::print will cause program size inflate
     // This alternative is better.
     template <typename ... Args>
@@ -33,10 +32,6 @@ namespace makexx {
     enum class target_c_standards       : std::uint32_t { latest  = 1, c11, c17, c23 };
     enum class target_optimizations     : std::uint32_t { o0      = 1, o1, o2, o3 };
     enum class target_msvc_subsystems   : std::uint32_t { console = 1, window };
-
-    void         put_default_content(cpod::archive& arch);
-    std::string  put_header_archive_to_buffer(const std::unordered_map<std::string_view, std::string>& defmap = {});
-    void         get_header_archive_from_buffer(cpod::archive& arch, std::unordered_map<std::string_view, std::string>& defmap);
     
     class visual_studio_project {
         std::string                                                   solution_name_;
