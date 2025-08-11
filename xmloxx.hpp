@@ -3,7 +3,6 @@
 #include <string>
 #include <vector>
 #include <ranges>
-#include <unordered_map>
 
 namespace xmloxx {
     
@@ -222,29 +221,28 @@ namespace xmloxx {
             // A single root node doesn't require iterations.
             if (depth() == 0) {
                 return std::format(format_string, begin()->to_string(0, node_data::flag_single_line));
-            } 
-            std::unordered_map<const tree_node*, std::string>   node_string_map;
-            node_string_map.reserve(nodes_.size());
+            }
+            std::vector<std::string> node_string_dense(nodes_.size());
             for (std::size_t i = depth(); i != 0; i--) {
                 auto                     same_depth_view = *this | std::views::filter([i](auto& e) { return e.depth() == i; });
                 auto                     parents_view    = same_depth_view | std::views::transform([](auto& e) { return e.parent(); });
                 for (auto parent : parents_view) {
-                    if (!node_string_map.contains(parent)) {
+                    if (node_string_dense[parent - begin()].empty()) {
                         std::string element_cache;
                         element_cache.append(parent->to_string(i - 1, node_data::flag_begin_brace));
                         for (auto& j : same_depth_view | std::views::filter([parent](auto& e) { return e.parent() == parent; })) {
-                            if (!node_string_map.contains(&j)) {
+                            if (node_string_dense[&j - begin()].empty()) {
                                 element_cache.append(j.to_string(i, static_cast<node_data::node_flags>(node_data::flag_begin_brace | node_data::flag_single_line)));
                             } else {
-                                element_cache += node_string_map[&j];
+                                element_cache += node_string_dense[&j - begin()];
                             }
                         }
                         element_cache.append(parent->to_string(i - 1, node_data::flag_none));
-                        node_string_map[parent] = element_cache;
+                        node_string_dense[parent - begin()] = element_cache;
                     }
                 }
             }
-            return std::format(format_string, node_string_map[begin()]);
+            return std::format(format_string, node_string_dense.front());
         }
     };
 }
