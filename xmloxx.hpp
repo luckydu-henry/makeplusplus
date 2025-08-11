@@ -132,7 +132,7 @@ namespace xmloxx {
 
 
     class tree {
-        std::pmr::vector<tree_node> nodes_;
+        std::vector<tree_node> nodes_;
     public:
         using iterator       = tree_node*;
         using const_iterator = const tree_node*;
