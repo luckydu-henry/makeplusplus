@@ -1,3 +1,4 @@
+#include <cstring>
 #include <algorithm>
 #include <format>
 #include <ranges>
@@ -769,7 +770,7 @@ if (!abspath.empty() && abspath.back() == '\\') { abspath.pop_back(); }
         current_archive.compile_content_default(definition_map_);
             
 #define FIND_AND_GET_PROPERTY(fn) do { \
-if (auto it = current_archive.find_variable_begin<decltype(fn)>(###fn); it != current_archive.content_end()) {\
+if (auto it = current_archive.find_variable_begin<decltype(fn)>(#fn); it != current_archive.content_end()) {\
     cpod::serializer<decltype(fn)>{}(it, fn, 0); \
 }} while (false)
 
@@ -851,14 +852,15 @@ if (auto it = current_archive.find_variable_begin<decltype(fn)>(###fn); it != cu
 if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn); it != current_archive.content_end()) {\
     cpod::serializer<decltype(mxx_##fn)>{}(it, mxx_##fn, 0); \
     auto hd_var = hd(mxx_##fn);                          \
-    vssln.fn(target, hd_var,__VA_ARGS__);           \
+    vssln.fn(target, hd_var,##__VA_ARGS__);           \
 }} while (false)
+
 
 #define FIND_AND_SET_PROPERTY_EX(fn, hd, q, ...) do { \
 if (auto it = current_archive.find_variable_begin<decltype(mxx_##fn)>("mxx_"#fn); it != current_archive.content_end()) {\
 cpod::serializer<decltype(mxx_##fn)>{}(it, mxx_##fn, 0); \
 auto hd_var = hd(mxx_##fn, q);                          \
-vssln.fn(target, hd_var,__VA_ARGS__);           \
+vssln.fn(target, hd_var,##__VA_ARGS__);           \
 }} while (false)
         
         std::string      splited_source;
@@ -965,7 +967,13 @@ vssln.fn(target, hd_var,__VA_ARGS__);           \
         // Generate project
         if      ("-gh"sv    == argv_[1])    { generate_header_(); }
         else if ("-gp"sv    == argv_[1])    { generate_project_(); }
-        else if ("-gv"sv    == argv_[1])    { generate_actual_visual_studio_project_(); }
+        else if ("-gv"sv    == argv_[1])    { 
+#ifdef _MSC_VER    
+            generate_actual_visual_studio_project_(); 
+#else
+            tiny_print(std::cout, "This is not a MSVC generate program, use -gm for makefile generation!\n");
+#endif
+        }
         else if ("-h"sv     == argv_[1]  ||
                  "--help"sv == argv_[1])    {
             tiny_print(std::cout, "{:s}\n", s_help_message);

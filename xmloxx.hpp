@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <ranges>
+#include <algorithm>
 
 namespace xmloxx {
     

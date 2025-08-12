@@ -90,7 +90,17 @@ namespace makexx {
     };
         
     class makefile_project {
-        
+        std::string                                          make_folder_name_;
+        std::vector<std::string>                             make_configs_;
+        std::unordered_map<std::string_view, std::string>    sub_makefiles_;
+    public:
+        makefile_project(std::string_view project_name, const std::vector<std::string>& configs);
+        makefile_project(const makefile_project&)            noexcept = default;
+        makefile_project(makefile_project&&)                 noexcept = default;
+        makefile_project& operator=(const makefile_project&) noexcept = default;
+        makefile_project& operator=(makefile_project&&)      noexcept = default;
+
+        makefile_project& new_target           (std::string_view target_name);       
     };
 
     class make_application {
@@ -106,7 +116,8 @@ however if your goal is to develop a third-party library and wants to include de
 easily, you might still want to use CMake.
 You can use -h or --help command for more usages.
 To create a makeplusplus project, just use -gp and you are ready to go.
----------------------------------------------------------------------------------------------------------------------)";
+---------------------------------------------------------------------------------------------------------------------
+)";
 
         static constexpr std::string_view s_help_message =
 R"(---------------------------------------------------------------------------------------------------------------------
@@ -114,7 +125,8 @@ R"(-----------------------------------------------------------------------------
 -gh                      : Generate only platform dependent header with makeplusplus project structure.
 -gp <project-name>       : Generate complete project with makeplusplus project structure.
 -gv <description-path>   : Generate visual studio solution and projects under '<project>' folder.
----------------------------------------------------------------------------------------------------------------------)";
+---------------------------------------------------------------------------------------------------------------------
+)";
         
         int         argc_;
         char**      argv_;
